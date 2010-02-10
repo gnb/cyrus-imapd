@@ -25,6 +25,7 @@ config.log
 config.status
 config.status.lineno
 configure
+debian/
 com_err/et/com_err.o
 com_err/et/compile_et
 com_err/et/error_message.o
