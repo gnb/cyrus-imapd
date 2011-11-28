@@ -5520,6 +5520,10 @@ out:
     return;
 
 error:
+    if (oldstate) {
+	if (imapd_index) index_close(&imapd_index);
+	imapd_index = oldstate;
+    }
     eatline(imapd_in, (c == EOF ? ' ' : c));
     goto out;
 }
