@@ -1,0 +1,253 @@
+#include "cunit/cunit.h"
+#include "bitvector.h"
+
+static void test_free(void)
+{
+    bitvector_t bv = BV_INITIALIZER;
+    /* it's ok to call free() even if we never
+     * set or cleared any bits */
+    bv_free(&bv);
+}
+
+static void test_basic(void)
+{
+    bitvector_t bv = BV_INITIALIZER;
+
+    /* read-only operations do not expand the vector */
+    CU_ASSERT_EQUAL(0, bv.length);
+    CU_ASSERT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(0, bv.length);
+    CU_ASSERT_EQUAL(0, bv.alloc);
+
+    /* can set bit0 and get it back */
+    bv_set(&bv, 0);
+    CU_ASSERT_EQUAL(1, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(1, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+
+    /* can set bit23 and get it back */
+    bv_set(&bv, 23);
+    CU_ASSERT_EQUAL(24, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(24, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+
+    /* can set all bits, does not change length */
+    bv_setall(&bv);
+    CU_ASSERT_EQUAL(24, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(24, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+
+    /* can clear all bits, does not change length */
+    bv_clearall(&bv);
+    CU_ASSERT_EQUAL(24, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(24, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+
+    /* can set the size, does not change existing bits */
+    bv_set(&bv, 0);
+    bv_set(&bv, 23);
+    bv_setsize(&bv, 105);
+    CU_ASSERT_EQUAL(105, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(105, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+
+    /* setall now works on the new size */
+    bv_setall(&bv);
+    CU_ASSERT_EQUAL(105, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 7));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 104));
+    CU_ASSERT_EQUAL(105, bv.length);
+    CU_ASSERT_NOT_EQUAL(0, bv.alloc);
+
+    bv_free(&bv);
+}
+
+static void test_andeq(void)
+{
+    bitvector_t a = BV_INITIALIZER;
+    bitvector_t b = BV_INITIALIZER;
+
+    bv_set(&a, 0);
+    bv_set(&a, 3);
+    CU_ASSERT_EQUAL(4, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 3));
+
+    bv_set(&b, 0);
+    bv_set(&b, 23);
+    CU_ASSERT_EQUAL(24, b.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 23));
+
+    bv_andeq(&a, &b);
+
+    CU_ASSERT_EQUAL(24, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&a, 3));
+    CU_ASSERT_EQUAL(0, bv_isset(&a, 23));
+
+    bv_free(&a);
+    bv_free(&b);
+}
+
+static void test_andeq_noexpand(void)
+{
+    bitvector_t a = BV_INITIALIZER;
+    bitvector_t b = BV_INITIALIZER;
+
+    bv_set(&a, 0);
+    bv_set(&a, 23);
+    CU_ASSERT_EQUAL(24, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 23));
+
+    bv_set(&b, 0);
+    bv_set(&b, 3);
+    bv_set(&b, 7);
+    CU_ASSERT_EQUAL(8, b.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 3));
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 7));
+
+    bv_andeq(&a, &b);
+
+    CU_ASSERT_EQUAL(24, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&a, 3));
+    CU_ASSERT_EQUAL(0, bv_isset(&a, 7));
+    CU_ASSERT_EQUAL(0, bv_isset(&a, 23));
+
+    bv_free(&a);
+    bv_free(&b);
+}
+
+static void test_oreq(void)
+{
+    bitvector_t a = BV_INITIALIZER;
+    bitvector_t b = BV_INITIALIZER;
+
+    bv_set(&a, 0);
+    bv_set(&a, 3);
+    CU_ASSERT_EQUAL(4, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 3));
+
+    bv_set(&b, 0);
+    bv_set(&b, 23);
+    CU_ASSERT_EQUAL(24, b.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 23));
+
+    bv_oreq(&a, &b);
+
+    CU_ASSERT_EQUAL(24, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 3));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 23));
+
+    bv_free(&a);
+    bv_free(&b);
+}
+
+static void test_oreq_noexpand(void)
+{
+    bitvector_t a = BV_INITIALIZER;
+    bitvector_t b = BV_INITIALIZER;
+
+    bv_set(&a, 0);
+    bv_set(&a, 23);
+    CU_ASSERT_EQUAL(24, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 23));
+
+    bv_set(&b, 0);
+    bv_set(&b, 3);
+    CU_ASSERT_EQUAL(4, b.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&b, 3));
+
+    bv_oreq(&a, &b);
+
+    CU_ASSERT_EQUAL(24, a.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 3));
+    CU_ASSERT_EQUAL(1, bv_isset(&a, 23));
+
+    bv_free(&a);
+    bv_free(&b);
+}
+
+static void test_shrink_expand(void)
+{
+    bitvector_t bv = BV_INITIALIZER;
+    int i;
+
+    /* set up some bits */
+    bv_setsize(&bv, 59);
+    bv_setall(&bv);
+    CU_ASSERT_EQUAL(59, bv.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 3));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 4));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 23));
+    CU_ASSERT_EQUAL(1, bv_isset(&bv, 58));
+
+    for (i = 55 ; i >= 4 ; i--) {
+	/* explicitly shrink the vector - bits off
+	 * the end are now gone */
+	bv_setsize(&bv, i);
+	CU_ASSERT_EQUAL(i, bv.length);
+	CU_ASSERT_EQUAL(1, bv_isset(&bv, i-2));
+	CU_ASSERT_EQUAL(1, bv_isset(&bv, i-1));
+	CU_ASSERT_EQUAL(0, bv_isset(&bv, i));
+	CU_ASSERT_EQUAL(0, bv_isset(&bv, i+1));
+	CU_ASSERT_EQUAL(0, bv_isset(&bv, i+2));
+
+	/* implicitly expand the vector - old bits
+	 * do not come back */
+	bv_set(&bv, 58);
+	CU_ASSERT_EQUAL(59, bv.length);
+	CU_ASSERT_EQUAL(1, bv_isset(&bv, 0));
+	CU_ASSERT_EQUAL(1, bv_isset(&bv, i-2));
+	CU_ASSERT_EQUAL(1, bv_isset(&bv, i-1));
+	CU_ASSERT_EQUAL(0, bv_isset(&bv, i));
+	CU_ASSERT_EQUAL(0, bv_isset(&bv, i+1));
+	CU_ASSERT_EQUAL(0, bv_isset(&bv, i+2));
+
+	bv_setall(&bv);
+    }
+
+    bv_free(&bv);
+}
