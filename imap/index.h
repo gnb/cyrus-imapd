@@ -225,6 +225,7 @@ extern int index_thread(struct index_state *state, int algorithm,
 extern int index_search(struct index_state *state,
 			struct searchargs *searchargs,
 			int usinguid);
+extern int index_multisearch(const struct searchargs *searchargs);
 extern int index_scan(struct index_state *state,
 		      const char *contents);
 extern int index_copy(struct index_state *state,

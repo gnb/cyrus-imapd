@@ -177,6 +177,18 @@ enum {
     STORE_ANNOTATION
 };
 
+enum {
+    SEARCH_SOURCE_SUBTREE = 1,
+    SEARCH_SOURCE_SUBSCRIBED
+};
+
+struct searchsource {
+    struct searchsource *next;
+    int type;			/* SEARCH_SOURCE_* */
+    char *mboxname;		/* external mboxname */
+    int depth;
+};
+
 struct searchannot {
     struct searchannot *next;
     char *entry;
@@ -218,10 +230,11 @@ enum {
 
 /* Bitmasks for search return options */
 enum {
-    SEARCH_RETURN_MIN =		(1<<0),
-    SEARCH_RETURN_MAX =		(1<<1),
-    SEARCH_RETURN_ALL =		(1<<2),
-    SEARCH_RETURN_COUNT =	(1<<3)
+    SEARCH_RETURN_MIN =		(1<<0),	    /* RFC4731 */
+    SEARCH_RETURN_MAX =		(1<<1),	    /* RFC4731 */
+    SEARCH_RETURN_ALL =		(1<<2),	    /* RFC4731 */
+    SEARCH_RETURN_COUNT =	(1<<3),	    /* RFC4731 */
+    SEARCH_RETURN_MAILBOX =	(1<<4)	    /* RFC6237 */
 };
 
 /* Things that may be searched for */
@@ -256,6 +269,9 @@ struct searchargs {
     /* For ESEARCH */
     const char *tag;
     int returnopts;
+    struct namespace *namespace;
+    const char *userid;
+    struct searchsource *sources;
 };
 
 /* Sort criterion */

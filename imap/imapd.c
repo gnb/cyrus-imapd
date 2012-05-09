@@ -333,7 +333,8 @@ struct capa_struct base_capabilities[] = {
 
 enum {
     GETSEARCH_CHARSET = 0x01,
-    GETSEARCH_RETURN = 0x02,
+    GETSEARCH_RETURN = 0x02,	    /* RFC 4731 */
+    GETSEARCH_SOURCE = 0x04	    /* RFC 6237 */
 };
 
 
@@ -361,6 +362,7 @@ static int do_xconvfetch(struct dlist *cidlist,
 			 struct fetchargs *fetchargs);
 void cmd_store(char *tag, char *sequence, int usinguid);
 void cmd_search(char *tag, int usinguid);
+void cmd_esearch(const char *tag);
 void cmd_sort(char *tag, int usinguid);
 void cmd_xconvsort(char *tag, int updates);
 void cmd_thread(char *tag, int usinguid);
@@ -439,7 +441,7 @@ int getlistretopts(char *tag, struct listargs *args);
 
 int getsearchreturnopts(const char *tag, struct searchargs *searchargs);
 int getsearchprogram(const char *tag, struct searchargs *searchargs,
-			int *charsetp, int is_search_cmd);
+			int *charsetp, int searchstate);
 int getsearchcriteria(const char *tag, struct searchargs *searchargs,
 			 int *charsetp, int *searchstatep);
 int getsearchdate(time_t *start, time_t *end);
@@ -1408,6 +1410,13 @@ void cmdloop(void)
 		if (c != ' ') goto missingargs;
 
 		cmd_enable(tag.s);
+	    }
+	    else if (!strcmp(cmd.s, "Esearch")) {
+		if (c != ' ') goto missingargs;
+
+		cmd_esearch(tag.s);
+
+// 		snmp_increment(ESEARCH_COUNT, 1);
 	    }
 	    else if (!strcmp(cmd.s, "Expunge")) {
 		if (!imapd_index && !backend_current) goto nomailbox;
@@ -5278,7 +5287,8 @@ void cmd_search(char *tag, int usinguid)
     /* local mailbox */
     searchargs = (struct searchargs *)xzmalloc(sizeof(struct searchargs));
     searchargs->tag = tag;
-    c = getsearchprogram(tag, searchargs, &charset, 1);
+    c = getsearchprogram(tag, searchargs, &charset,
+			 GETSEARCH_CHARSET|GETSEARCH_RETURN);
     if (c == EOF) {
 	eatline(imapd_in, ' ');
 	freesearchargs(searchargs);
@@ -5305,6 +5315,65 @@ void cmd_search(char *tag, int usinguid)
 		    error_message(IMAP_OK_COMPLETED), n, mytime);
     }
 
+    freesearchargs(searchargs);
+}
+
+/*
+ * Perform an ESEARCH (RFC 6237) command.
+ */
+void cmd_esearch(const char *tag)
+{
+    int c;
+    int charset = 0;	/* default is US-ASCII */
+    struct searchargs *searchargs;
+    clock_t start = clock();
+    char mytime[100];
+    int n;
+
+    if (backend_current) {
+	/* remote mailbox */
+	prot_printf(backend_current->out, "%s Esearch ", tag);
+	if (!pipe_command(backend_current, 65536)) {
+	    pipe_including_tag(backend_current, tag, 0);
+	}
+	return;
+    }
+
+    /* local mailbox */
+    searchargs = (struct searchargs *)xzmalloc(sizeof(struct searchargs));
+    searchargs->tag = tag;
+    c = getsearchprogram(tag, searchargs, &charset,
+			 GETSEARCH_CHARSET|GETSEARCH_RETURN|GETSEARCH_SOURCE);
+    if (c == EOF) {
+	eatline(imapd_in, ' ');
+	goto out;
+    }
+    if (!searchargs->returnopts)
+	searchargs->returnopts = SEARCH_RETURN_ALL;
+    searchargs->returnopts |= SEARCH_RETURN_MAILBOX;
+    searchargs->namespace = &imapd_namespace;
+    searchargs->userid = imapd_userid;
+
+    if (c == '\r') c = prot_getc(imapd_in);
+    if (c != '\n') {
+	prot_printf(imapd_out, "%s BAD Unexpected extra arguments to Search\r\n", tag);
+	eatline(imapd_in, c);
+	goto out;
+    }
+
+    if (charset == -1) {
+	prot_printf(imapd_out, "%s NO %s\r\n", tag,
+	       error_message(IMAP_UNRECOGNIZED_CHARSET));
+    }
+    else {
+	n = index_multisearch(searchargs);
+	snprintf(mytime, sizeof(mytime), "%2.3f",
+		 (clock() - start) / (double) CLOCKS_PER_SEC);
+	prot_printf(imapd_out, "%s OK %s (%d msgs in %s secs)\r\n", tag,
+		    error_message(IMAP_OK_COMPLETED), n, mytime);
+    }
+
+out:
     freesearchargs(searchargs);
 }
 
@@ -9430,17 +9499,172 @@ int getsearchreturnopts(const char *tag, struct searchargs *searchargs)
     return c;
 }
 
+/* Utility function to add a new struct searchsource to the tail of the
+ * sources list in the searchargs.  It's O(N), so what. */
+static void add_search_source(struct searchargs *searchargs,
+			      int type, const char *mboxname, int depth)
+{
+    struct searchsource **tailp;
+    struct searchsource *source;
+
+    for (tailp = &searchargs->sources ; *tailp ; tailp = &((*tailp)->next))
+	;
+
+    source = (struct searchsource *)xzmalloc(sizeof(struct searchsource));
+
+    source->type = type;
+    if (mboxname)
+	source->mboxname = xstrdup(mboxname);
+    source->depth = depth;
+
+    *tailp = source;
+}
+
+/* Parse "one-or-more-mailbox" from RFC5465 */
+static int getsearchmailboxes(const char *tag,
+			      struct searchargs *searchargs,
+			      const char *word, int depth)
+{
+    int c;
+    struct buf mboxname = BUF_INITIALIZER;
+
+    c = prot_getc(imapd_in);
+
+    if (c == EOF)
+	goto out;
+
+    if (c == ' ') {
+	prot_printf(imapd_out,
+		    "%s BAD Missing arguments to %s in Esearch\r\n", tag, word);
+error:
+	c = EOF;
+	goto out;
+    }
+
+    if (c != '(') {
+	/* mailbox */
+	prot_ungetc(c, imapd_in);
+	c = getastring(imapd_in, imapd_out, &mboxname);
+	if (!mboxname.len) {
+	    prot_printf(imapd_out,
+			"%s BAD Missing arguments to %s in Esearch\r\n", tag, word);
+	    goto error;
+	}
+	add_search_source(searchargs, SEARCH_SOURCE_SUBTREE, mboxname.s, depth);
+	goto out;
+    }
+
+    /* many-mailboxes  = "(" mailbox *(SP mailbox) ")" */
+    do {
+	c = getastring(imapd_in, imapd_out, &mboxname);
+	if (!mboxname.len) break;
+
+	add_search_source(searchargs, SEARCH_SOURCE_SUBTREE, mboxname.s, depth);
+
+    } while (c == ' ');
+
+    if (c != ')') {
+	prot_printf(imapd_out,
+		    "%s BAD Missing close parenthesis in Esearch\r\n", tag);
+	goto error;
+    }
+
+    c = prot_getc(imapd_in);
+
+out:
+    buf_free(&mboxname);
+    return c;
+}
+
+/*
+ * Parse search sources ("esearch-source-opts" in RFC 6237)
+ */
+int getsearchsourceopts(const char *tag, struct searchargs *searchargs)
+{
+    int c;
+    struct buf word = BUF_INITIALIZER;
+
+    c = prot_getc(imapd_in);
+    if (c != '(') {
+	prot_printf(imapd_out,
+		    "%s BAD Missing IN word in Esearch\r\n", tag);
+error:
+	c = EOF;
+	goto out;
+    }
+
+    do {
+	c = getword(imapd_in, &word);
+	if (!word.s[0]) break;
+
+	lcase(word.s);
+	if (!strcmp(word.s, "inboxes") ||
+	    !strcmp(word.s, "personal")) {
+	    add_search_source(searchargs,
+			      SEARCH_SOURCE_SUBTREE,
+			      "INBOX", -1/*infinity*/);
+	}
+	else if (!strcmp(word.s, "selected")) {
+	    if (imapd_index) {
+		char extname[MAX_MAILBOX_BUFFER];
+		imapd_namespace.mboxname_toexternal(&imapd_namespace,
+						    imapd_index->mailbox->name,
+						    imapd_userid, extname);
+		add_search_source(searchargs,
+				  SEARCH_SOURCE_SUBTREE,
+				  extname, 0);
+	    }
+	    /* otherwise, silently specifies no mailboxes, which seems
+	     * to be the intent of sec 6.1 in RFC5465 */
+	}
+	/* "selected-delayed" is forbidden by RFC6237 */
+	else if (!strcmp(word.s, "subscribed")) {
+	    add_search_source(searchargs,
+			      SEARCH_SOURCE_SUBSCRIBED,
+			      NULL, 0);
+	}
+	else if (!strcmp(word.s, "subtree")) {
+	    c = getsearchmailboxes(tag, searchargs, word.s, /*depth*/-1/*infinity*/);
+	    if (c == EOF) goto error;
+	}
+	else if (!strcmp(word.s, "subtree-one")) {
+	    c = getsearchmailboxes(tag, searchargs, word.s, /*depth*/1);
+	    if (c == EOF) goto error;
+	}
+	else if (!strcmp(word.s, "mailboxes")) {
+	    c = getsearchmailboxes(tag, searchargs, word.s, /*depth*/0);
+	    if (c == EOF) goto error;
+	}
+	else {
+	    prot_printf(imapd_out,
+			"%s BAD Invalid Search source option %s\r\n",
+			tag, word.s);
+	    goto error;
+	}
+
+    } while (c == ' ');
+
+    if (c != ')') {
+	prot_printf(imapd_out,
+		    "%s BAD Missing close parenthesis in Esearch\r\n", tag);
+	goto error;
+    }
+
+    c = prot_getc(imapd_in);
+
+out:
+    buf_free(&word);
+    return c;
+}
+
+
 /*
  * Parse a search program
  */
 int getsearchprogram(const char *tag, struct searchargs *searchargs,
-		     int *charsetp, int is_search_cmd)
+		     int *charsetp, int searchstate)
 {
     int c;
-    int searchstate = 0;
-
-    if (is_search_cmd)
-	searchstate |= GETSEARCH_CHARSET|GETSEARCH_RETURN;
 
     do {
 	c = getsearchcriteria(tag, searchargs, charsetp, &searchstate);
@@ -9648,6 +9872,15 @@ int getsearchcriteria(const char *tag, struct searchargs *searchargs,
 	    str = charset_convert(arg.s, *charsetp, charset_flags);
 	    if (str) appendstrlistpat(patlist, str);
 	    else searchargs->flags = (SEARCH_RECENT_SET|SEARCH_RECENT_UNSET);
+	}
+	else goto badcri;
+	break;
+
+    case 'i':
+	if ((*searchstatep & GETSEARCH_SOURCE) && !strcmp(criteria.s, "in")) {
+	    c = getsearchsourceopts(tag, searchargs);
+	    if (c == EOF) return EOF;
+	    keep_charset = 1;
 	}
 	else goto badcri;
 	break;
@@ -9922,7 +10155,13 @@ int getsearchcriteria(const char *tag, struct searchargs *searchargs,
 
     if (!keep_charset)
 	*searchstatep &= ~GETSEARCH_CHARSET;
-    *searchstatep &= ~GETSEARCH_RETURN;
+
+    /* esearch-source-opts are first, if they exist,
+     * followed by search-return-opts */
+    if (*searchstatep & GETSEARCH_SOURCE)
+	*searchstatep &= ~GETSEARCH_SOURCE;
+    else if (*searchstatep & GETSEARCH_RETURN)
+	*searchstatep &= ~GETSEARCH_RETURN;
 
     return c;
 
@@ -11561,6 +11800,15 @@ void freesearchargs(struct searchargs *s)
 	freesearchargs(sub->sub2);
 	free(sub);
     }
+
+    while (s->sources) {
+	struct searchsource *source = s->sources;
+	s->sources = s->sources->next;
+
+	free(source->mboxname);
+	free(source);
+    }
+
     free(s);
 }
 

@@ -1512,6 +1512,20 @@ int index_search(struct index_state *state, struct searchargs *searchargs,
 }
 
 /*
+ * Performs a ESEARCH command which handles multiple folders.
+ * This is a wrapper around _index_search() which simply prints the results.
+ */
+int index_multisearch(const struct searchargs *searchargs)
+{
+    struct searchsource *source;
+    syslog(LOG_ERR, "XXX: index_multisearch()");
+    for (source = searchargs->sources ; source ; source = source->next)
+	syslog(LOG_ERR, "XXX:     source={type=%d mboxname=%s depth=%d}",
+		source->type, source->mboxname, source->depth);
+    return 0;
+}
+
+/*
  * Performs a SORT command
  */
 int index_sort(struct index_state *state, struct sortcrit *sortcrit,
