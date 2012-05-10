@@ -110,8 +110,10 @@ endif
 if NNTPD
 service_PROGRAMS += imap/nntpd
 endif
-service_PROGRAMS += imap/pop3d imap/quota imap/reconstruct imap/smmapd \
-	imap/squatter
+service_PROGRAMS += imap/pop3d imap/quota imap/reconstruct imap/smmapd
+if USE_SQUAT
+service_PROGRAMS += imap/squatter
+endif
 if REPLICATION
 service_PROGRAMS += imap/sync_client imap/sync_reset imap/sync_server
 endif
@@ -418,9 +420,7 @@ imap_libimap_a_SOURCES = imap/annotate.c imap/annotate.h imap/append.c \
 	imap/quota_db.c imap/rfc822_header.c imap/rfc822_header.h \
 	imap/saslclient.c imap/saslclient.h imap/saslserver.c \
 	imap/search_engines.c imap/search_engines.h imap/seen.h \
-	imap/search_squat.c \
 	imap/seen_db.c imap/sequence.c imap/sequence.h imap/setproctitle.c \
-	imap/squat.c imap/squat.h imap/squat_internal.c imap/squat_internal.h \
 	imap/statuscache.h imap/statuscache_db.c imap/sync_log.c \
 	imap/sync_log.h imap/telemetry.c imap/telemetry.h imap/tls.c \
 	imap/tls.h imap/upgrade_index.c imap/upgrade_index.h imap/user.c \
@@ -428,6 +428,12 @@ imap_libimap_a_SOURCES = imap/annotate.c imap/annotate.h imap/append.c \
 	imap/version.h imap/conversations.c \
 	imap/mailbox_update_notifier.c imap/mailbox_update_notifier.h \
 	imap/mailbox_update_notifier.pb-c.h imap/mailbox_update_notifier.pb-c.c
+if USE_SQUAT
+imap_libimap_a_SOURCES += \
+	imap/search_squat.c \
+	imap/squat.c imap/squat.h \
+	imap/squat_internal.c imap/squat_internal.h
+endif
 
 imap_lmtpd_SOURCES = imap/lmtpd.c imap/lmtpd.h imap/lmtpengine.c \
 	imap/lmtpengine.h imap/lmtpstats.c imap/lmtpstats.h \
@@ -601,9 +607,12 @@ dist_man_MANS = man/imtest.1 man/installsieve.1 man/lmtptest.1 \
 	man/deliver.8 man/fetchnews.8 man/fud.8 man/idled.8 man/imapd.8 \
 	man/ipurge.8 man/lmtpd.8 man/master.8 man/mbexamine.8 man/mbpath.8 \
 	man/nntpd.8 man/notifyd.8 man/pop3d.8 man/quota.8 man/reconstruct.8 \
-	man/rmnews.8 man/smmapd.8 man/squatter.8 man/syncnews.8 \
+	man/rmnews.8 man/smmapd.8 man/syncnews.8 \
 	man/sync_client.8 man/sync_reset.8 man/sync_server.8 man/timsieved.8 \
 	man/tls_prune.8 man/unexpunge.8
+if USE_SQUAT
+dist_man_MANS += man/squatter.8
+endif
 
 master_master_SOURCES = master/cyrusMasterMIB.c master/cyrusMasterMIB.h \
 	master/master.c master/master.h master/masterconf.c \
