@@ -418,6 +418,7 @@ imap_libimap_a_SOURCES = imap/annotate.c imap/annotate.h imap/append.c \
 	imap/quota_db.c imap/rfc822_header.c imap/rfc822_header.h \
 	imap/saslclient.c imap/saslclient.h imap/saslserver.c \
 	imap/search_engines.c imap/search_engines.h imap/seen.h \
+	imap/search_squat.c \
 	imap/seen_db.c imap/sequence.c imap/sequence.h imap/setproctitle.c \
 	imap/squat.c imap/squat.h imap/squat_internal.c imap/squat_internal.h \
 	imap/statuscache.h imap/statuscache_db.c imap/sync_log.c \
