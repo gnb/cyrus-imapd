@@ -434,6 +434,10 @@ imap_libimap_a_SOURCES += \
 	imap/squat.c imap/squat.h \
 	imap/squat_internal.c imap/squat_internal.h
 endif
+if USE_SPHINX
+imap_libimap_a_SOURCES += \
+	imap/search_sphinx.c
+endif
 
 imap_lmtpd_SOURCES = imap/lmtpd.c imap/lmtpd.h imap/lmtpengine.c \
 	imap/lmtpengine.h imap/lmtpstats.c imap/lmtpstats.h \
