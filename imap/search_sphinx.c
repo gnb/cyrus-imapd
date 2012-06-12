@@ -111,7 +111,7 @@ static void add_match(struct buf *query, int *np,
     static struct buf e2 = BUF_INITIALIZER;
 
     for ( ; strs ; strs = strs->next) {
-	buf_init_ro(&f, strs->s, strlen(strs->s));
+	buf_init_ro_cstr(&f, strs->s);
 	escape(&e1, &f);
 	escape(&e2, &e1);
 
