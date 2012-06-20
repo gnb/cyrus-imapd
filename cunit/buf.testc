@@ -3,6 +3,9 @@
 #include "prot.h"
 #include "xmalloc.h"
 #include "util.h"
+#include "retry.h"
+#include "map.h"
+#include <sys/mman.h>
 
 static void test_simple(void)
 {
@@ -1016,7 +1019,7 @@ static int is_valid_mapping(const char *p, size_t len)
     /* round up to a page size */
     len = ((len + page_size-1) / page_size) * page_size;
 
-    r = msync(p, len, 0);
+    r = msync((void *)p, len, 0);
 
     if (r == 0)
 	return 1;		/* valid mapping */
