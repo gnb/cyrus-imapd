@@ -4355,6 +4355,7 @@ static int getsearchtext_cb(int partno, int charset, int encoding,
 			    data->s, data->len,
 			    charset, encoding, charset_flags);
     }
+    return 0;
 }
 
 static void index_getsearchtextmsg(struct mailbox *mailbox,
