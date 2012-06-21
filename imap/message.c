@@ -4894,6 +4894,47 @@ int part_get_part(part_t *part, unsigned int id, part_t **childp)
     return (*childp ? 0 : IMAP_NOTFOUND);
 }
 
+static int part_foreach_text_section(part_t *part,
+				     int (*proc)(int partno, int charset,
+						 int encoding, struct buf *data,
+						 void *rock),
+				     void *rock)
+{
+    segment_t *header;
+    segment_t *body;
+    segment_t *s;
+    struct buf data = BUF_INITIALIZER;
+    int r;
+
+    header = segment_find_child(to_segment(part), ID_HEADER);
+    if (header) {
+	buf_init_ro(&data, part->message->map.s + header->offset, header->length);
+	r = proc(0, 0, ENCODING_NONE, &data, rock);
+	buf_free(&data);
+	if (r) return r;
+    }
+
+    body = segment_find_child(to_segment(part), ID_BODY);
+    if (body) {
+	if (part->encoding != 0xffff) {
+	    buf_init_ro(&data, part->message->map.s + body->offset, body->length);
+	    r = proc(part->super.id & ID_MASK,
+		     part->charset, part->encoding,
+		     &data, rock);
+	    buf_free(&data);
+	    if (r) return r;
+	}
+	else {
+	    for (s = body->children ; s ; s = s->next) {
+		r = part_foreach_text_section(get_part(s), proc, rock);
+		if (r) return r;
+	    }
+	}
+    }
+
+    return 0;
+}
+
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
 
 /*
@@ -5115,6 +5156,23 @@ int message_get_msgno(message_t *m, uint32_t *msgnop)
     if (r) return r;
     *msgnop = m->msgno;
     return 0;
+}
+
+/*
+ * Iterate 'proc' over all the MIME header sections and body sections of
+ * type TEXT, in the message 'm', preorder.  The 'proc' is called with
+ * 'partno' equal to zero for header sections, non-zero for body
+ * sections.  If 'proc' returns non-zero, the iteration finishes early
+ * and the return value of 'proc' is returned.  Otherwise returns 0.
+ */
+int message_foreach_text_section(message_t *m,
+				 int (*proc)(int partno, int charset, int encoding,
+					     struct buf *data, void *rock),
+				 void *rock)
+{
+    int r = message_need(m, M_SEGS|M_MAP);
+    if (r) return r;
+    return part_foreach_text_section(get_part(m->segs), proc, rock);
 }
 
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
