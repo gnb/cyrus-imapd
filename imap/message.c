@@ -3473,7 +3473,7 @@ message_t *message_new_from_mailbox(struct mailbox *mailbox, unsigned int recno)
 {
     message_t *m = message_new();
     m->mailbox = mailbox;
-    m->recno = recno;
+    m->record.recno = recno;
     m->have = m->given = M_MAILBOX;
     return m;
 }
@@ -3485,7 +3485,6 @@ message_t *message_new_from_record(struct mailbox *mailbox,
     assert(record->uid > 0);
     m->mailbox = mailbox;
     m->record = *record;
-    m->recno = record->recno;
     m->have = m->given = M_MAILBOX|M_RECORD|M_UID;
     return m;
 }
@@ -3499,7 +3498,6 @@ message_t *message_new_from_index(struct mailbox *mailbox,
     assert(record->uid > 0);
     m->mailbox = mailbox;
     m->record = *record;
-    m->recno = record->recno;
     m->msgno = msgno;
     m->indexflags = indexflags;
     m->have = m->given = M_MAILBOX|M_RECORD|M_UID|M_INDEX;
@@ -3555,7 +3553,7 @@ static int message_need(message_t *m, unsigned int need)
     if (is_missing(M_RECORD)) {
 	r = message_need(m, M_MAILBOX);
 	if (r) return r;
-	r = mailbox_read_index_record(m->mailbox, m->recno, &m->record);
+	r = mailbox_read_index_record(m->mailbox, m->record.recno, &m->record);
 	if (r) return r;
 	found(M_RECORD|M_UID);
     }

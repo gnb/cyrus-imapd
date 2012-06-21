@@ -166,7 +166,6 @@ struct message
     unsigned short given;
     char *filename;
     struct mailbox *mailbox;
-    unsigned int recno;
     unsigned int msgno;
     uint32_t indexflags;
     struct buf map;
