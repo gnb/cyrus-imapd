@@ -113,19 +113,6 @@ struct part
     int encoding;
 };
 
-typedef int (*part_query_cb_t)(message_t *m, part_t *part,
-			       void *rock);
-
-struct part_query
-{
-    message_t *message;
-    part_query_cb_t cb;
-    void *rock;
-    unsigned int depth;
-#define MAX_PART_DEPTH	    16
-    unsigned int steps[MAX_PART_DEPTH];
-};
-
 struct field_desc
 {
     const char *name;
