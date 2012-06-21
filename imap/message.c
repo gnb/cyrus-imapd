@@ -5023,12 +5023,91 @@ int message_get_date(message_t *m, time_t *tp)
     return r;
 }
 
+int message_get_mailbox(message_t *m, struct mailbox **mailboxp)
+{
+    int r = message_need(m, M_MAILBOX);
+    if (r) return r;
+    *mailboxp = m->mailbox;
+    return 0;
+}
+
+int message_get_uid(message_t *m, uint32_t *uidp)
+{
+    int r = message_need(m, M_UID);
+    if (r) return r;
+    *uidp = m->record.uid;
+    return 0;
+}
+
+int message_get_cid(message_t *m, conversation_id_t *cidp)
+{
+    int r = message_need(m, M_RECORD);
+    if (r) return r;
+    *cidp = m->record.cid;
+    return 0;
+}
+
+int message_get_internaldate(message_t *m, time_t *tp)
+{
+    int r = message_need(m, M_RECORD);
+    if (r) return r;
+    *tp = m->record.internaldate;
+/* TODO: as fallback, extract from header fields */
+    return 0;
+}
+
+int message_get_sentdate(message_t *m, time_t *tp)
+{
+    int r = message_need(m, M_RECORD);
+    if (r) return r;
+    *tp = m->record.sentdate;
+/* TODO: as fallback, extract from header fields */
+    return 0;
+}
+
+int message_get_modseq(message_t *m, modseq_t *modseqp)
+{
+    int r = message_need(m, M_RECORD);
+    if (r) return r;
+    *modseqp = m->record.modseq;
+    return 0;
+}
+
+int message_get_systemflags(message_t *m, uint32_t *flagsp)
+{
+    int r = message_need(m, M_RECORD);
+    if (r) return r;
+    *flagsp = m->record.system_flags;
+    return 0;
+}
+
 int message_get_indexflags(message_t *m, uint32_t *flagsp)
 {
     int r = message_need(m, M_INDEX);
     if (r) return r;
     *flagsp = m->indexflags;
     return 0;
+}
+
+int message_get_userflags(message_t *m, uint32_t *flagsp)
+{
+    int r = message_need(m, M_RECORD);
+    if (r) return r;
+    memcpy(flagsp, m->record.user_flags, MAX_USER_FLAGS/8);
+    return 0;
+}
+
+int message_get_size(message_t *m, uint32_t *sizep)
+{
+    if (!message_need(m, M_RECORD)) {
+	*sizep = m->record.size;
+	return 0;
+    }
+    if (!message_need(m, M_SEGS)) {
+	*sizep = m->segs->length;
+	return 0;
+    }
+    return IMAP_NOTFOUND;
 }
 
 int message_get_msgno(message_t *m, uint32_t *msgnop)
