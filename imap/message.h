@@ -224,12 +224,22 @@ enum message_format
     
 };
 
+enum message_indexflags
+{
+    MESSAGE_SEEN=		(1<<0),
+    MESSAGE_RECENT=		(1<<1),
+};
+
 extern message_t *message_new(void);
 extern message_t *message_new_from_data(const char *base, size_t len);
 extern message_t *message_new_from_mailbox(struct mailbox *mailbox,
 					   unsigned int recno);
 extern message_t *message_new_from_record(struct mailbox *,
 				          const struct index_record *);
+extern message_t *message_new_from_index(struct mailbox *,
+					 const struct index_record *,
+					 uint32_t msgno,
+					 uint32_t indexflags);
 extern message_t *message_new_from_filename(const char *filename);
 
 extern message_t *message_ref(message_t *m);

@@ -3490,6 +3490,22 @@ message_t *message_new_from_record(struct mailbox *mailbox,
     return m;
 }
 
+message_t *message_new_from_index(struct mailbox *mailbox,
+				  const struct index_record *record,
+				  uint32_t msgno,
+				  uint32_t indexflags)
+{
+    message_t *m = message_new();
+    assert(record->uid > 0);
+    m->mailbox = mailbox;
+    m->record = *record;
+    m->recno = record->recno;
+    m->msgno = msgno;
+    m->indexflags = indexflags;
+    m->have = m->given = M_MAILBOX|M_RECORD|M_UID|M_INDEX;
+    return m;
+}
+
 message_t *message_new_from_filename(const char *filename)
 {
     message_t *m = message_new();
@@ -4941,6 +4957,22 @@ int message_get_date(message_t *m, time_t *tp)
     if (r < 0) r = -EINVAL;
     buf_free(&buf);
     return r;
+}
+
+int message_get_indexflags(message_t *m, uint32_t *flagsp)
+{
+    int r = message_need(m, M_INDEX);
+    if (r) return r;
+    *flagsp = m->indexflags;
+    return 0;
+}
+
+int message_get_msgno(message_t *m, uint32_t *msgnop)
+{
+    int r = message_need(m, M_INDEX);
+    if (r) return r;
+    *msgnop = m->msgno;
+    return 0;
 }
 
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/

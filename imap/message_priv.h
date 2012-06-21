@@ -156,6 +156,7 @@ struct field_desc
 				     * BODYSTRUCTURE from cyrus.cache */
 #define M_CHEADER	(1<<8)	    /* header from cyrus.cache */
 #define M_CENVELOPE	(1<<9)	    /* envelope from cyrus.cache */
+#define M_INDEX	    	(1<<10)	    /* per-index bits: msgno & indexflags */
 #define M_ALL		(~0U)	    /* everything */
 
 struct message
@@ -166,6 +167,8 @@ struct message
     char *filename;
     struct mailbox *mailbox;
     unsigned int recno;
+    unsigned int msgno;
+    uint32_t indexflags;
     struct buf map;
     segment_t *segs;
     struct buf cheader_map;
