@@ -4563,19 +4563,6 @@ static int message2_map_file(message_t *m, const char *fname)
 
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
 
-static int get_body_segment(part_t *part, segment_t **sp)
-{
-    int r;
-
-    r = message_need(part->message, M_SEGS);
-    if (r) return r;
-
-    *sp = segment_find_child(to_segment(part), ID_BODY);
-    return (*sp ? 0 : IMAP_NOTFOUND);
-}
-
-/*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
-
 static void extract_one(struct buf *buf,
 		        const field_desc_t *desc,
 		        int format,
@@ -4767,8 +4754,12 @@ static int part_extract_body(part_t *part,
     char *decbuf = NULL;
     size_t declen = 0;
 
-    r = get_body_segment(part, &s);
+    r = message_need(part->message, M_SEGS);
     if (r) return r;
+
+    s = segment_find_child(to_segment(part), ID_BODY);
+    if (!s) return IMAP_NOTFOUND;
+
     r = message2_map_segment(part->message, s, &raw);
     if (r) return r;
 
@@ -4874,8 +4865,12 @@ int part_get_num_parts(part_t *part, unsigned int *np)
     segment_t *s;
     int r;
 
-    r = get_body_segment(part, &s);
+    r = message_need(part->message, M_SEGS);
     if (r) return r;
+
+    s = segment_find_child(to_segment(part), ID_BODY);
+    if (!s) return IMAP_NOTFOUND;
+
     r = message2_expand_segment(part->message, s);
     if (r) return r;
     *np = segment_get_num_children(s);
@@ -4887,8 +4882,12 @@ int part_get_part(part_t *part, unsigned int id, part_t **childp)
     segment_t *s;
     int r;
 
-    r = get_body_segment(part, &s);
+    r = message_need(part->message, M_SEGS);
     if (r) return r;
+
+    s = segment_find_child(to_segment(part), ID_BODY);
+    if (!s) return IMAP_NOTFOUND;
+
     r = message2_expand_segment(part->message, s);
     if (r) return r;
     *childp = get_part(segment_find_child(s, T_PART|id));
