@@ -4596,6 +4596,9 @@ static void extract_one(struct buf *buf,
 	buf_insertcstr(raw, 0, desc->name);
     }
 
+    if (!(format & MESSAGE_APPEND))
+	buf_reset(buf);
+
     switch (format & _MESSAGE_FORMAT_MASK) {
     case MESSAGE_RAW:
 	/* Logically, we're appending to the resulting buffer.
@@ -4720,6 +4723,9 @@ static int part_extract_body(part_t *part,
     if (r) return r;
     r = message2_map_segment(part->message, s, &raw);
     if (r) return r;
+
+    if (!(format & MESSAGE_APPEND))
+	buf_reset(buf);
 
     switch (format & _MESSAGE_FORMAT_MASK) {
     case MESSAGE_RAW:

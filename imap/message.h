@@ -214,14 +214,19 @@ enum message_format
     /* This flag can be OR'd into the format argument to request that
      * the field name and a colon ':' are left in the result.  Normally
      * only the field value is returned.  This is useful when calling
-     * multiple times, to accumulate multiple headers in the buffer. */
+     * multiple times with MESSAGE_APPEND, to accumulate multiple headers
+     * in the buffer. */
     MESSAGE_FIELDNAME=		(1<<5),
 
     /* This flag can be OR'd into the format argument to request that
      * all the fields of the given name are returned.  Normally only
      * the first is returned, which is faster. */
-    MESSAGE_MULTIPLE=		(1<<6)
-    
+    MESSAGE_MULTIPLE=		(1<<6),
+
+    /* This flag can be OR'd into the format argument to request that
+     * results be appended to the buffer; normally the buffer is reset
+     * first. */
+    MESSAGE_APPEND=		(1<<7)
 };
 
 enum message_indexflags
