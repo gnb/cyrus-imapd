@@ -3064,6 +3064,8 @@ static void field_desc_init_builtins(void)
 	{ "in-reply-to", BIT32_MAX, ID_IN_REPLY_TO, -1, ENV_INREPLYTO },
 	{ "mime-version", BIT32_MAX, ID_MIME_VERSION, -1, -1 },
 	{ "content-type", BIT32_MAX, ID_CONTENT_TYPE, -1, -1 },
+	{ "content-transfer-encoding", BIT32_MAX,
+	    ID_CONTENT_TRANSFER_ENCODING, -1, -1 },
 	{ "reply-to", BIT32_MAX, 0, -1, -1 },
 	{ "received", BIT32_MAX, 0, -1, -1 },
 	{ "return-path", BIT32_MAX, 0, -1, -1 },
@@ -3320,23 +3322,26 @@ static unsigned int segment_get_num_children(segment_t *s)
 }
 
 #if DEBUG
-static void indent(int depth)
+static const char *indent(int depth)
 {
     int i;
+    static struct buf buf = BUF_INITIALIZER;
+    static int lastdepth = -1;
 
-    for (i = 0 ; i < depth ; i++)
-	fputs("  ", stderr);
+    if (depth != lastdepth) {
+	buf_reset(&buf);
+	for (i = 0 ; i < depth ; i++)
+	    buf_appendcstr(&buf, "  ");
+	lastdepth = depth;
+    }
+    return buf_cstring(&buf);
 }
 
 static void segment_dump(segment_t *s, int depth)
 {
     segment_t *child;
-    static const char separator[] =
-	"\n========================================\n";
 
-    if (!depth) fputs(separator, stderr);
-    indent(depth);
-    fprintf(stderr, "SEG id=");
+    fprintf(stderr, "%sSEG id=", indent(depth));
     switch (s->id) {
     case ID_INVALID:
 	fputs("INVALID", stderr);
@@ -3386,7 +3391,6 @@ static void segment_dump(segment_t *s, int depth)
 
     for (child = s->children ; child ; child = child->next)
 	segment_dump(child, depth+1);
-    if (!depth) fputs(separator, stderr);
 }
 #endif
 
@@ -3408,6 +3412,27 @@ static void part_set_type(part_t *part, const char *type,
     part->type = (type ? ucase(xstrdup(type)) : NULL);
     part->subtype = (type ? ucase(xstrdup(subtype)) : NULL);
 }
+
+#if DEBUG
+static const char *part_get_path(part_t *part)
+{
+    ptrarray_t ancestors = PTRARRAY_INITIALIZER;
+    static struct buf buf = BUF_INITIALIZER;
+    int i;
+
+    for ( ; part ; part = get_part(part->super.parent))
+	ptrarray_push(&ancestors, part);
+
+    buf_reset(&buf);
+    for (i = ancestors.count-1 ; i >= 0  ; i--)
+	buf_printf(&buf, "%s%u",
+		    (buf.len ? "." : ""),
+		    ((segment_t *)ancestors.data[i])->id & ID_MASK);
+
+    ptrarray_fini(&ancestors);
+    return buf_cstring(&buf);
+}
+#endif
 
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
 
@@ -3841,7 +3866,12 @@ out:
     return r;
 }
 
-static int skip_nil_or_nstring_list(struct protstream *prot)
+/*
+ * Skip either a single NIL or a balanced possibly-nested list of
+ * nstrings.  Useful for ignoring various constructs from the
+ * BODYSTRUCTURE cache.
+ */
+static int skip_nil_or_nstring_list(struct protstream *prot, int depth)
 {
     int r = IMAP_MAILBOX_BADFORMAT;
     int c;
@@ -3851,15 +3881,26 @@ static int skip_nil_or_nstring_list(struct protstream *prot)
     if (c == EOF)
 	goto out;   /* ran out of data */
     if (c == '(' && !word.len) {
-	/* list of atoms */
-	for (;;) {
-	    c = getnstring(prot, NULL, &word);
-fprintf(stderr, "XXX skipping string \"%s\"\n", word.s);
-	    if (c == ')')
-		break;
+	/* possibly-nested list of atoms */
+	int treedepth = 1;
+	do {
+	    c = prot_getc(prot);
+	    if (c != ')' && c != '(') {
+		prot_ungetc(c, prot);
+		c = getnstring(prot, NULL, &word);
+#if DEBUG
+		if (word.len)
+		    fprintf(stderr, "%sskipping string \"%s\" at %d\n",
+			    indent(depth), word.s, treedepth);
+#endif
+	    }
+	    if (c == '(')
+		treedepth++;
+	    else if (c == ')')
+		treedepth--;
 	    else if (c != ' ')
 		goto out;
-	}
+	} while (treedepth);
 	c = prot_getc(prot);
 	if (c != ' ') goto out;
 	r = 0;
@@ -3869,7 +3910,9 @@ fprintf(stderr, "XXX skipping string \"%s\"\n", word.s);
 	c = getnstring(prot, NULL, &word);
 	if (c == ' ' && !word.len) {
 	    /* 'NIL' */
-fprintf(stderr, "XXX skipping NIL\n");
+#if DEBUG
+	    fprintf(stderr, "%sskipping NIL\n", indent(depth));
+#endif
 	    r = 0;
 	    goto out;
 	}
@@ -3881,7 +3924,9 @@ out:
     return r;
 }
 
-static int parse_bodystructure_part(part_t *part, struct protstream *prot)
+static int parse_bodystructure_part(part_t *part,
+				    struct protstream *prot,
+				    int depth)
 {
     int c;
     int r = 0;
@@ -3889,6 +3934,11 @@ static int parse_bodystructure_part(part_t *part, struct protstream *prot)
     struct buf buf2 = BUF_INITIALIZER;
     segment_t *body = segment_find_child(to_segment(part), ID_BODY);
     int is_multipart = 0;
+
+#if DEBUG
+    fprintf(stderr, "%sparsing bodystructure for %s {\n",
+	    indent(depth), part_get_path(part));
+#endif
 
     c = prot_getc(prot);
     if (c != '(') {
@@ -3898,13 +3948,14 @@ badformat:
     }
 
     c = prot_getc(prot);
+    prot_ungetc(c, prot);
     if (c == '(' && body->children) {
 	segment_t *s;
 
 	is_multipart = 1;
 	/* parse children of a MULTIPART */
 	for (s = body->children ; s ; s = s->next) {
-	    r = parse_bodystructure_part(get_part(s), prot);
+	    r = parse_bodystructure_part(get_part(s), prot, depth+1);
 	    if (r) goto out;
 	}
 
@@ -3912,23 +3963,26 @@ badformat:
 	if (c != ' ') goto badformat;
     }
     else {
-	prot_ungetc(c, prot);
 
 	/* parse mime-type */
 	c = getnstring(prot, NULL, &buf1);
 	if (c != ' ') goto badformat;
-fprintf(stderr, "XXX mime-type=\"%s\"\n", buf1.s);
+#if DEBUG
+	fprintf(stderr, "%smime-type=\"%s\"\n", indent(depth), buf1.s);
+#endif
     }
 
     /* parse mime-subtype */
     c = getnstring(prot, NULL, &buf2);
     if (c != ' ') goto badformat;
-fprintf(stderr, "XXX mime-subtype=\"%s\"\n", buf2.s);
+#if DEBUG
+    fprintf(stderr, "%smime-subtype=\"%s\"\n", indent(depth), buf2.s);
+#endif
 
     part_set_type(part, (is_multipart ? "MULTIPART" : buf1.s), buf2.s);
 
     /* skip mime-params: we have all the ones we care about from SECTION */
-    r = skip_nil_or_nstring_list(prot);
+    r = skip_nil_or_nstring_list(prot, depth);
     if (r) goto out;
 
     if (!is_multipart) {
@@ -3936,69 +3990,89 @@ fprintf(stderr, "XXX mime-subtype=\"%s\"\n", buf2.s);
 	/* skip msgid: we have it from ENVELOPE */
 	c = getnstring(prot, NULL, &buf1);
 	if (c != ' ') goto badformat;
-fprintf(stderr, "XXX msgid=\"%s\"\n", buf1.s);
+#if DEBUG
+	fprintf(stderr, "%smsgid=\"%s\"\n", indent(depth), buf1.s);
+#endif
 
 	/* skip description: we don't care */
 	c = getnstring(prot, NULL, &buf1);
 	if (c != ' ') goto badformat;
-fprintf(stderr, "XXX description=\"%s\"\n", buf1.s);
+#if DEBUG
+	fprintf(stderr, "%sdescription=\"%s\"\n", indent(depth), buf1.s);
+#endif
 
 	/* skip encoding: we have it from SECTION */
 	c = getnstring(prot, NULL, &buf1);
 	if (c != ' ') goto badformat;
-fprintf(stderr, "XXX encoding=\"%s\"\n", buf1.s);
+#if DEBUG
+	fprintf(stderr, "%sencoding=\"%s\"\n", indent(depth), buf1.s);
+#endif
 
 	/* skip content-size: we have it from SECTION */
 	c = getword(prot, &buf1);
 	if (c != ' ') goto badformat;
-fprintf(stderr, "XXX content-size=\"%s\"\n", buf1.s);
+#if DEBUG
+	    fprintf(stderr, "%scontent-size=\"%s\"\n", indent(depth), buf1.s);
+#endif
 
 	if (!strcmpsafe(part->type, "TEXT")) {
 
 	    /* parse content-lines */
 	    c = getword(prot, &buf1);
 	    if (c != ' ') goto badformat;
-fprintf(stderr, "XXX content-lines=\"%s\"\n", buf1.s);
+#if DEBUG
+	    fprintf(stderr, "%scontent-lines=\"%s\"\n", indent(depth), buf1.s);
+#endif
 
 	}
 	else if (!strcmpsafe(part->type, "MESSAGE") &&
 		 !strcmpsafe(part->type, "RFC822")) {
 
 	    /* skip envelope */
-	    r = skip_nil_or_nstring_list(prot);
+	    r = skip_nil_or_nstring_list(prot, depth);
 	    if (r) goto out;
 
 	    /* skip body */
-	    r = parse_bodystructure_part(get_part(body->children), prot);
+	    r = parse_bodystructure_part(get_part(body->children),
+					 prot, depth+1);
 	    if (r) goto out;
 
 	    /* parse content-lines */
 	    c = getword(prot, &buf1);
 	    if (c != ' ') goto badformat;
-fprintf(stderr, "XXX content-lines=\"%s\"\n", buf1.s);
+#if DEBUG
+	    fprintf(stderr, "%scontent-lines=\"%s\"\n", indent(depth), buf1.s);
+#endif
 	}
 
 	/* parse md5sum */
 	c = getnstring(prot, NULL, &buf1);
 	if (c != ' ') goto badformat;
-fprintf(stderr, "XXX md5sum=\"%s\"\n", buf1.s);
+#if DEBUG
+	fprintf(stderr, "%smd5sum=\"%s\"\n", indent(depth), buf1.s);
+#endif
     }
 
     /* skips disposition-and-params */
-    r = skip_nil_or_nstring_list(prot);
+    r = skip_nil_or_nstring_list(prot, depth);
     if (r) goto out;
 
     /* parse languages */  /* TODO */
-    r = skip_nil_or_nstring_list(prot);
+    r = skip_nil_or_nstring_list(prot, depth);
     if (r) goto out;
 
     /* skip location */
     c = getnstring(prot, NULL, &buf1);
     if (c != ')') goto badformat;
-fprintf(stderr, "XXX location=\"%s\"\n", buf1.s);
+#if DEBUG
+    fprintf(stderr, "%slocation=\"%s\"\n", indent(depth), buf1.s);
+#endif
 
     r = 0;
 out:
+#if DEBUG
+    fprintf(stderr, "%s}\n", indent(depth));
+#endif
     buf_free(&buf1);
     buf_free(&buf2);
     return r;
@@ -4018,17 +4092,19 @@ static int message2_parse_cbodystructure(message_t *m)
     /* We're reading the cache - double check we have it */
     assert(m->have & M_CACHE);
 
-fprintf(stderr, "XXX bodystructure=\"");
-fwrite(cacheitem_base(&m->record, CACHE_BODYSTRUCTURE), 1,
-	cacheitem_size(&m->record, CACHE_BODYSTRUCTURE), stderr);
-fprintf(stderr, "\"\n");
+#if DEBUG
+    fprintf(stderr, "parsing bodystructure=\"");
+    fwrite(cacheitem_base(&m->record, CACHE_BODYSTRUCTURE), 1,
+	    cacheitem_size(&m->record, CACHE_BODYSTRUCTURE), stderr);
+    fprintf(stderr, "\"\n");
+#endif
 
     prot = prot_readmap(cacheitem_base(&m->record, CACHE_BODYSTRUCTURE),
 			cacheitem_size(&m->record, CACHE_BODYSTRUCTURE));
     if (!prot)
 	return IMAP_MAILBOX_BADFORMAT;
 
-    r = parse_bodystructure_part(get_part(m->segs), prot);
+    r = parse_bodystructure_part(get_part(m->segs), prot, 0);
     prot_free(prot);
 #if DEBUG
     segment_dump(m->segs, 0);
@@ -4063,34 +4139,6 @@ static int parse_param_name(const char *s)
     }
     return P_UNKNOWN;
 }
-
-static int parse_encoding(const char *s)
-{
-    switch (s[0]) {
-    case '7':
-	if (!strcasecmp(s, "7BIT"))
-	    return ENCODING_NONE;
-	break;
-    case '8':
-	if (!strcasecmp(s, "8BIT"))
-	    return ENCODING_NONE;
-	break;
-    case 'B':
-    case 'b':
-	if (!strcasecmp(s, "BASE64"))
-	    return ENCODING_BASE64;
-	if (!strcasecmp(s, "BINARY"))
-	    return ENCODING_NONE;
-	break;
-    case 'Q':
-    case 'q':
-	if (!strcasecmp(s, "QUOTED-PRINTABLE"))
-	    return ENCODING_QP;
-	break;
-    }
-    return ENCODING_UNKNOWN;
-}
-
 
 /*
  * Parse the special MIME fields.  Note that we can't just parse these
@@ -4197,7 +4245,7 @@ static void handle_mime_fields(part_t *part,
 	t = rfc822tok_next(&tok, &val);
 	if (t != RFC822_ATOM && t != RFC822_QSTRING)
 	    goto default_encoding;
-	e = parse_encoding(val);
+	e = encoding_lookupname(val);
 	if (e == ENCODING_UNKNOWN)
 	    goto default_encoding;
 	part->encoding = e;
