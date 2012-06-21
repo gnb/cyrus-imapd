@@ -4708,6 +4708,54 @@ out:
 
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
 
+static int part_extract_header(part_t *part,
+			       int format,
+			       struct buf *buf)
+{
+    segment_t *s;
+    int r;
+    struct buf raw = BUF_INITIALIZER;
+    const char *p;
+
+    r = message_need(part->message, M_SEGS);
+    if (r) return r;
+
+    s = segment_find_child(to_segment(part), ID_HEADER);
+    if (!s) return IMAP_NOTFOUND;
+
+    r = message2_map_segment(part->message, s, &raw);
+    if (r) return r;
+
+    if (!(format & MESSAGE_APPEND))
+	buf_reset(buf);
+
+    switch (format & _MESSAGE_FORMAT_MASK) {
+    case MESSAGE_RAW:
+	/* Logically, we're appending to the resulting buffer.
+	 * However if the buf is empty we can save a memory copy
+	 * by setting it up as a CoW buffer.  This means that
+	 * the caller will need to call buf_cstring() if they
+	 * need a C string. */
+	buf_cowappendmap(buf, raw.s, raw.len);
+	break;
+    case MESSAGE_DECODED:
+	p = charset_parse_mimeheader(buf_cstring(&raw));
+	buf_appendcstr(buf, p);
+	break;
+    case MESSAGE_SEARCH:
+	/* TODO: need a variant of decode_mimeheader() which
+	 * takes two struct buf* and a search flag */
+	p = charset_decode_mimeheader(buf_cstring(&raw), charset_flags);
+	buf_appendcstr(buf, p);
+	break;
+    }
+
+    buf_free(&raw);
+    return r;
+}
+
+/*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
+
 static int part_extract_body(part_t *part,
 			     int format,
 			     struct buf *buf)
@@ -4767,6 +4815,11 @@ int part_get_field(part_t *part, const char *name,
     return message_extract_field(part->message, to_segment(part),
 				 field_desc_get_byname(name, 0, /*create*/0),
 				 format, buf);
+}
+
+int part_get_header(part_t *part, int format, struct buf *buf)
+{
+    return part_extract_header(part, format, buf);
 }
 
 int part_get_body(part_t *part, int format, struct buf *buf)
@@ -4859,6 +4912,13 @@ int message_get_field(message_t *m, const char *name,
     return message_extract_field(m, m->segs,
 				 field_desc_get_byname(name, 0, /*create*/0),
 				 format, buf);
+}
+
+int message_get_header(message_t *m, int format, struct buf *buf)
+{
+    int r = message_need(m, M_SEGS);
+    if (r) return r;
+    return part_extract_header(get_part(m->segs), format, buf);
 }
 
 int message_get_body(message_t *m, int format, struct buf *buf)

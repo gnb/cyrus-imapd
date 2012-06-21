@@ -252,6 +252,7 @@ extern void message_unref(message_t **m);
 
 extern int part_get_field(part_t *part, const char *name,
 		   int format, struct buf *buf);
+extern int part_get_header(part_t *part, int format, struct buf *buf);
 extern int part_get_body(part_t *part, int format, struct buf *buf);
 extern int part_get_type(part_t *part, const char **strp);
 extern int part_get_subtype(part_t *part, const char **strp);
@@ -262,6 +263,7 @@ extern int part_get_part(part_t *part, unsigned int id, part_t **childp);
 
 extern int message_get_field(message_t *m, const char *name,
 			     int format, struct buf *buf);
+extern int message_get_header(message_t *m, int format, struct buf *buf);
 extern int message_get_body(message_t *m, int format, struct buf *buf);
 extern int message_get_type(message_t *m, const char **strp);
 extern int message_get_subtype(message_t *m, const char **strp);
