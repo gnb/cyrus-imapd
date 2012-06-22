@@ -223,12 +223,12 @@ static void dump_buf(FILE *fp, const struct buf *data)
 }
 
 static int dump_one_section(int partno, int charset, int encoding,
-			    struct buf *data,
+			    const char *subtype, struct buf *data,
 			    void *rock __attribute__((unused)))
 {
 #define MAX_TEXT    512
-    printf("SECTION partno=%d length=%u charset=%s encoding=%s\n",
-	    partno, data->len, charset_name(charset), encoding_name(encoding));
+    printf("SECTION partno=%d length=%u subtype=%s charset=%s encoding=%s\n",
+	    partno, data->len, subtype, charset_name(charset), encoding_name(encoding));
     dump_buf(stdout, data);
     return 0;
 #undef MAX_TEXT
