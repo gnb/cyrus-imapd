@@ -74,6 +74,7 @@ const int config_need_data = CONFIG_NEED_PARTITION_DATA;
 static int usage(const char *name);
 
 int verbose = 0;
+enum { PART_TREE, TEXT_SECTIONS } dump_mode = PART_TREE;
 
 static const char *indent(int depth)
 {
@@ -134,7 +135,7 @@ static int dump_part(part_t *part, unsigned int id, int depth)
 }
 
 
-static int dump_message(message_t *message)
+static int dump_part_tree(message_t *message)
 {
     struct buf buf = BUF_INITIALIZER;
     part_t *root = NULL;
@@ -182,6 +183,32 @@ static int dump_message(message_t *message)
     return 0;
 }
 
+static int dump_one_section(int partno, int charset, int encoding,
+			    struct buf *data,
+			    void *rock __attribute__((unused)))
+{
+    fprintf(stderr, "SECTION %d charset=%s encoding=%s\n",
+	    partno, charset_name(charset), encoding_name(encoding));
+    fprintf(stderr, "-->");
+    fwrite(data->s, 1, data->len, stderr);
+    fprintf(stderr, "<--\n");
+    return 0;
+}
+
+static int dump_text_sections(message_t *message)
+{
+    return message_foreach_text_section(message, dump_one_section, NULL);
+}
+
+static int dump_message(message_t *message)
+{
+    switch (dump_mode) {
+    case PART_TREE: return dump_part_tree(message);
+    case TEXT_SECTIONS: return dump_text_sections(message);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     int c;
@@ -196,7 +223,7 @@ int main(int argc, char **argv)
 	fatal("must run as the Cyrus user", EC_USAGE);
     }
 
-    while ((c = getopt(argc, argv, "Rf:m:r:vC:")) != EOF) {
+    while ((c = getopt(argc, argv, "Rf:m:pr:svC:")) != EOF) {
 	switch (c) {
 
 	case 'f':
@@ -207,10 +234,18 @@ int main(int argc, char **argv)
 	    mboxname = optarg;
 	    break;
 
+	case 'p':
+	    dump_mode = PART_TREE;
+	    break;
+
 	case 'r':
 	    recno = atoi(optarg);
 	    if (recno <= 0)
 		usage(argv[0]);
+	    break;
+
+	case 's':
+	    dump_mode = TEXT_SECTIONS;
 	    break;
 
 	case 'v':
@@ -335,9 +370,12 @@ int main(int argc, char **argv)
 
 static int usage(const char *name)
 {
-    fprintf(stderr, "usage: %s -m mailbox [-r recno] [-R]\n", name);
-    fprintf(stderr, "       %s -f filename\n", name);
-    fprintf(stderr, "       %s < message\n", name);
+    fprintf(stderr, "usage: %s [format-options] -m mailbox [-r recno] [-R]\n", name);
+    fprintf(stderr, "       %s [format-options] -f filename\n", name);
+    fprintf(stderr, "       %s [format-options] < message\n", name);
+    fprintf(stderr, "format-options :=\n");
+    fprintf(stderr, "-p		dump message part tree\n");
+    fprintf(stderr, "-s		dump text sections\n");
     exit(EC_USAGE);
 }
 
