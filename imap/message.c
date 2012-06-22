@@ -3544,13 +3544,13 @@ static int message_need(message_t *m, unsigned int need)
     if (!is_missing(M_ALL))
 	return 0;	/* easy, we already have it */
 
-    if (is_missing(M_MAILBOX|M_FILENAME|M_UID)) {
+    if (is_missing(M_MAILBOX|M_FILENAME)) {
 	/* We can't get these for ourselves,
 	 * they need to be passed in by the caller */
 	return IMAP_NOTFOUND;
     }
 
-    if (is_missing(M_RECORD)) {
+    if (is_missing(M_RECORD|M_UID)) {
 	r = message_need(m, M_MAILBOX);
 	if (r) return r;
 	r = mailbox_read_index_record(m->mailbox, m->record.recno, &m->record);
