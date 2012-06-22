@@ -211,7 +211,7 @@ static void dump_octets(FILE *fp, const char *base, unsigned int len)
 static void dump_buf(FILE *fp, const struct buf *data)
 {
 #define MAX_TEXT    512
-    if (data->len <= MAX_TEXT) {
+    if (verbose || data->len <= MAX_TEXT) {
 	dump_octets(fp, data->s, data->len);
     }
     else {
