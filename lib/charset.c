@@ -92,6 +92,23 @@ struct search_state {
     size_t offset;
 };
 
+enum html_state {
+    HTEXT,
+    HTAGNAME,
+    HTAGPARAMS,
+    HENTITY,
+    HSCRIPT,
+    HSTYLE,
+    HCOMMENT
+};
+
+struct striphtml_state {
+    struct buf name;
+    /* state stack */
+    int depth;
+    enum html_state stack[2];
+};
+
 struct convert_rock;
 
 typedef void convertproc_t(struct convert_rock *rock, int c);
@@ -567,6 +584,161 @@ void byte2buffer(struct convert_rock *rock, int c)
     buf_putc(buf, c & 0xff);
 }
 
+static int html_decode_entity(const char *ent)
+{
+    if (!strcmp(ent, "lt"))
+	return '<';
+    else if (!strcmp(ent, "gt"))
+	return '>';
+    else if (!strcmp(ent, "amp"))
+	return '&';
+    else if (!strcmp(ent, "quot"))
+	return '\'';
+    else if (!strcmp(ent, "dquot"))
+	return '"';
+    else
+	return 0xfffd;	    /* unknown character */
+}
+
+static void html_push(struct striphtml_state *s, enum html_state state)
+{
+    assert(s->depth < (int)(sizeof(s->stack)/sizeof(s->stack[0])));
+    s->stack[s->depth++] = state;
+}
+
+static int html_pop(struct striphtml_state *s)
+{
+    assert(s->depth > 0);
+    return s->stack[--s->depth];
+}
+
+static void html_go(struct striphtml_state *s, enum html_state state)
+{
+    assert(s->depth > 0);
+    s->stack[s->depth-1] = state;
+}
+
+static enum html_state html_top(struct striphtml_state *s)
+{
+    assert(s->depth > 0);
+    return s->stack[s->depth-1];
+}
+
+static void html_saw_tag(struct striphtml_state *s)
+{
+    const char *tag = buf_cstring(&s->name);
+    enum html_state state = html_top(s);
+
+    /* gnb:TODO: what are we supposed to do with a nested <script> tag? */
+
+    if (state == HTEXT && !strcasecmp(tag, "script"))
+	html_go(s, HSCRIPT);
+    else if (state == HSCRIPT && !strcasecmp(tag, "/script"))
+	html_go(s, HTEXT);
+    else if (state == HTEXT && !strcasecmp(tag, "style"))
+	html_go(s, HSTYLE);
+    else if (state == HSTYLE && !strcasecmp(tag, "/style"))
+	html_go(s, HTEXT);
+    /* otherwise, no change */
+}
+
+/*
+ * Note we don't use isalnum - the test has to be in US-ASCII always
+ * regardless of the charset of the text or the locale of this process
+ */
+#define html_is_tag_char(c) \
+    (((c) >= 'a' && (c) <= 'z') || \
+     ((c) >= 'A' && (c) <= 'Z'))
+#define html_is_entity_char(c) \
+    (((c) >= 'a' && (c) <= 'z') || \
+     ((c) >= 'A' && (c) <= 'Z'))
+
+void striphtml2uni(struct convert_rock *rock, int c)
+{
+    struct striphtml_state *s = (struct striphtml_state *)rock->state;
+
+    switch (html_top(s)) {
+    case HTEXT:
+	if (c == '<') {
+	    html_push(s, HTAGNAME);
+	}
+	else if (c == '&') {
+	    html_go(s, HENTITY);
+	}
+	else {
+	    convert_putc(rock->next, c);
+	}
+	break;
+
+    case HSCRIPT:
+    case HSTYLE:
+	if (c == '<') {
+	    html_push(s, HTAGNAME);
+	}
+	break;
+
+    case HENTITY:
+	/* gnb:TODO decode &# entities */
+	if (c == ';') {
+	    /* finish a correctly formed entity - emit the entity */
+	    convert_putc(rock->next, html_decode_entity(buf_cstring(&s->name)));
+	    html_go(s, HTEXT);
+	}
+	else if (!html_is_entity_char(c)) {
+	    if (!s->name.len) {
+		/* probably an unescaped & - emit the & */
+		convert_putc(rock->next, '&');
+		convert_putc(rock->next, c);
+	    }
+	    else {
+		/* probably an incorrectly formed entity - swallow it */
+	    }
+	    buf_reset(&s->name);
+	    html_go(s, HTEXT);
+	}
+	else {
+	    buf_putc(&s->name, c);
+	}
+	break;
+
+    case HTAGNAME:
+	/* gnb:TODO handle xhtml <tag/> */
+	/* gnb:TODO handle > embedded in "param" */
+	if (c == '!' && !s->name.len) {
+	    /* markup declaration open delimiter - let's just assume
+	     * it's a comment */
+	    html_go(s, HCOMMENT);
+	}
+	else if (c == '/' && !s->name.len) {
+	    buf_putc(&s->name, c);
+	}
+	else if (c == '>') {
+	    html_pop(s);
+	    html_saw_tag(s);
+	}
+	else if (!html_is_tag_char(c)) {
+	    html_go(s, HTAGPARAMS);
+	}
+	else {
+	    buf_putc(&s->name, c);
+	}
+	break;
+
+    case HTAGPARAMS:	    /* ignores all text until next '>' */
+	if (c == '>') {
+	    html_pop(s);
+	    html_saw_tag(s);
+	}
+	break;
+
+    case HCOMMENT:	    /* ignores all text until next '>' */
+	if (c == '>') {
+	    html_pop(s);
+	}
+	break;
+    }
+}
+
 /* convert_rock manipulation routines */
 
 void table_switch(struct convert_rock *rock, int charset_num)
@@ -751,6 +923,19 @@ static struct convert_rock *buffer_init(void)
 
     return rock;
 }
+
+struct convert_rock *striphtml_init(struct convert_rock *next)
+{
+    struct convert_rock *rock = xzmalloc(sizeof(struct convert_rock));
+    struct striphtml_state *s = xzmalloc(sizeof(struct striphtml_state));
+    /* gnb:TODO: if a DOCTYPE is present, sniff it to detect XHTML rules */
+    html_push(s, HTEXT);
+    rock->state = (void *)s;
+    rock->f = striphtml2uni;
+    rock->next = next;
+    return rock;
+}
+
 
 /* API */
 
@@ -1193,6 +1378,13 @@ int charset_extract(search_text_receiver_t *receiver,
     tobuffer = buffer_init();
     input = uni_init(tobuffer);
     input = canon_init(flags, input);
+
+    if (!strcmpsafe(subtype, "HTML")) {
+	/* this is text/html data, so we can make ourselves useful by
+	 * stripping html tags, css and js. */
+	input = striphtml_init(input);
+    }
+
     input = table_init(charset, input);
 
     switch (encoding) {
