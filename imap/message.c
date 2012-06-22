@@ -4906,6 +4906,9 @@ static int part_foreach_text_section(part_t *part,
     struct buf data = BUF_INITIALIZER;
     int r;
 
+    r = message2_expand_segment(part->message, to_segment(part));
+    if (r) return r;
+
     header = segment_find_child(to_segment(part), ID_HEADER);
     if (header) {
 	buf_init_ro(&data, part->message->map.s + header->offset, header->length);
@@ -4916,6 +4919,9 @@ static int part_foreach_text_section(part_t *part,
 
     body = segment_find_child(to_segment(part), ID_BODY);
     if (body) {
+	r = message2_expand_segment(part->message, body);
+	if (r) return r;
+
 	if (!strcmpsafe(part->type, "TEXT")) {
 	    buf_init_ro(&data, part->message->map.s + body->offset, body->length);
 	    r = proc(part->super.id & ID_MASK,
