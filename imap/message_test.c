@@ -284,6 +284,7 @@ static int dump_text_receiver(message_t *message)
     rx.end_message = dump_rx_end_message;
 
     index_getsearchtext(message, &rx);
+    return 0;
 }
 
 /*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*/
