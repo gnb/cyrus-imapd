@@ -4916,7 +4916,7 @@ static int part_foreach_text_section(part_t *part,
 
     body = segment_find_child(to_segment(part), ID_BODY);
     if (body) {
-	if (part->encoding != 0xffff) {
+	if (!strcmpsafe(part->type, "TEXT")) {
 	    buf_init_ro(&data, part->message->map.s + body->offset, body->length);
 	    r = proc(part->super.id & ID_MASK,
 		     part->charset, part->encoding,
@@ -4924,11 +4924,9 @@ static int part_foreach_text_section(part_t *part,
 	    buf_free(&data);
 	    if (r) return r;
 	}
-	else {
-	    for (s = body->children ; s ; s = s->next) {
-		r = part_foreach_text_section(get_part(s), proc, rock);
-		if (r) return r;
-	    }
+	for (s = body->children ; s ; s = s->next) {
+	    r = part_foreach_text_section(get_part(s), proc, rock);
+	    if (r) return r;
 	}
     }
 
@@ -5170,7 +5168,7 @@ int message_foreach_text_section(message_t *m,
 					     struct buf *data, void *rock),
 				 void *rock)
 {
-    int r = message_need(m, M_SEGS|M_MAP);
+    int r = message_need(m, M_SEGS|M_BODY|M_MAP);
     if (r) return r;
     return part_foreach_text_section(get_part(m->segs), proc, rock);
 }
