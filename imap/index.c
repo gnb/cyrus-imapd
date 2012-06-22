@@ -4370,9 +4370,9 @@ static int getsearchtext_cb(int partno, int charset, int encoding,
     return 0;
 }
 
-void index_getsearchtext_single(message_t *msg,
-				index_search_text_receiver_t receiver,
-				void *rock)
+void index_getsearchtext(message_t *msg,
+			 index_search_text_receiver_t receiver,
+			 void *rock)
 {
     struct getsearchtext_rock str;
     int utf8 = charset_lookupname("utf-8");
