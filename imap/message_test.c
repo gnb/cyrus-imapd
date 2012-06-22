@@ -183,16 +183,44 @@ static int dump_part_tree(message_t *message)
     return 0;
 }
 
+static void dump_octets(FILE *fp, const char *base, unsigned int len)
+{
+    unsigned int i;
+
+    while (len > 0) {
+	fputs("    ", fp);
+	for (i = 0 ; i < 16 && i < len ; i++)
+	    fprintf(fp, "%02x ", ((unsigned char *)base)[i]);
+	for (; i < 16 ; i++)
+	    fputs("   ", fp);
+	fputs("   ", fp);
+	for (i = 0 ; i < 16 && i < len ; i++)
+	    fputc((isprint(base[i]) && !isspace(base[i]) ? base[i] : '.'), fp);
+	fputc('\n', fp);
+
+	i = (len > 16 ? 16 : len);
+	len -= i;
+	base += i;
+    }
+}
+
 static int dump_one_section(int partno, int charset, int encoding,
 			    struct buf *data,
 			    void *rock __attribute__((unused)))
 {
-    fprintf(stderr, "SECTION %d charset=%s encoding=%s\n",
-	    partno, charset_name(charset), encoding_name(encoding));
-    fprintf(stderr, "-->");
-    fwrite(data->s, 1, data->len, stderr);
-    fprintf(stderr, "<--\n");
+#define MAX_TEXT    512
+    printf("SECTION partno=%d length=%u charset=%s encoding=%s\n",
+	    partno, data->len, charset_name(charset), encoding_name(encoding));
+    if (data->len <= MAX_TEXT) {
+	dump_octets(stdout, data->s, data->len);
+    }
+    else {
+	dump_octets(stdout, data->s, MAX_TEXT/2);
+	fputs("    ...\n", stdout);
+	dump_octets(stdout, data->s + data->len - MAX_TEXT/2, MAX_TEXT/2);
+    }
     return 0;
+#undef MAX_TEXT
 }
 
 static int dump_text_sections(message_t *message)
