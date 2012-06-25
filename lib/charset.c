@@ -817,6 +817,15 @@ static void buffer_free(struct convert_rock *rock)
     basic_free(rock);
 }
 
+static void striphtml_free(struct convert_rock *rock)
+{
+    if (rock && rock->state) {
+	struct striphtml_state *s = (struct striphtml_state *)rock->state;
+	buf_free(&s->name);
+    }
+    basic_free(rock);
+}
+
 void convert_free(struct convert_rock *rock) {
     struct convert_rock *next;
     while (rock) {
@@ -932,6 +941,7 @@ struct convert_rock *striphtml_init(struct convert_rock *next)
     html_push(s, HTEXT);
     rock->state = (void *)s;
     rock->f = striphtml2uni;
+    rock->cleanup = striphtml_free;
     rock->next = next;
     return rock;
 }
