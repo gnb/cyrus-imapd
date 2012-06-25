@@ -1,7 +1,10 @@
+#include <sys/types.h>
 #include "cunit/cunit.h"
 #include "xmalloc.h"
+#include "util.h"
 #include "charset.h"
 
+/* The Unicode Replacement character 0xfffd in UTF-8 encoding */
 #define UTF8_REPLACEMENT    "\357\277\275"
 
 static void test_lookupname(void)
@@ -189,4 +192,167 @@ static void test_rfc5051(void)
     CU_ASSERT_STRING_EQUAL(s, RES_RFC5051);
     free(s);
 }
+
+struct test_receiver {
+    search_text_receiver_t super;
+    int ncalls;
+    struct buf out;
+};
+
+static void begin_message(search_text_receiver_t *rx
+			      __attribute__((unused)),
+			  uint32_t uid __attribute__((unused)))
+{
+    CU_FAIL("begin_message() should not be called here");
+}
+
+static void begin_part(search_text_receiver_t *rx
+			      __attribute__((unused)),
+		       int part __attribute__((unused)))
+{
+    CU_FAIL("begin_part() should not be called here");
+}
+
+static void append_text(search_text_receiver_t *rx,
+			const struct buf *text)
+{
+    struct test_receiver *tr = (struct test_receiver *)rx;
+
+    tr->ncalls++;
+    buf_append(&tr->out, text);
+}
+
+static void end_part(search_text_receiver_t *rx
+			      __attribute__((unused)),
+		     int part __attribute__((unused)))
+{
+    CU_FAIL("end_part() should not be called here");
+}
+
+static void end_message(search_text_receiver_t *rx
+			      __attribute__((unused)),
+			uint32_t uid __attribute__((unused)))
+{
+    CU_FAIL("end_message() should not be called here");
+}
+
+#define TESTCASE(in, cs, enc, st, exp) \
+    { \
+	static const char _in[] = (in); \
+	static int _cs = (cs); \
+	int _enc = (enc); \
+	static const char _st[] = (st); \
+	static const char _exp[] = (exp); \
+	struct buf bin = BUF_INITIALIZER; \
+	struct test_receiver tr; \
+	int r; \
+ \
+	memset(&tr, 0, sizeof(tr)); \
+	tr.super.begin_message = begin_message; \
+	tr.super.begin_part = begin_part; \
+	tr.super.append_text = append_text; \
+	tr.super.end_part = end_part; \
+	tr.super.end_message = end_message; \
+ \
+	buf_init_ro(&bin, _in, sizeof(_in)-1); \
+ \
+	r = charset_extract(&tr.super, &bin, _cs, _enc, _st, flags); \
+	CU_ASSERT_EQUAL(r, 1); \
+	CU_ASSERT_EQUAL(tr.ncalls, 1); \
+	CU_ASSERT_STRING_EQUAL(buf_cstring(&tr.out), _exp); \
+ \
+	buf_free(&bin); \
+	buf_free(&tr.out); \
+    }
+
+static void test_extract(void)
+{
+    int flags = CHARSET_SKIPDIACRIT | CHARSET_MERGESPACE; /* default */
+    /* data thanks to hipsteripsum.me */
+
+    /* simplest case - no space, plain text is capitalised */
+    TESTCASE("freegan", 0, ENCODING_NONE, "PLAIN", "FREEGAN");
+
+    /* capitalised text is still capitalised */
+    TESTCASE("FANNY PACK", 0, ENCODING_NONE, "PLAIN", "FANNY PACK");
+
+    /* single spaces become single spaces */
+    TESTCASE("before they sold out",
+	     0, ENCODING_NONE, "PLAIN",
+	     "BEFORE THEY SOLD OUT");
+
+    /* multiple spaces are squashed to a single spaces */
+    TESTCASE("you    probably \t haven't\r\nheard\t\r\tof them",
+	     0, ENCODING_NONE, "PLAIN",
+	     "YOU PROBABLY HAVEN'T HEARD OF THEM");
+
+    /* HTML: correctly formed balanced tag pairs */
+    TESTCASE("<bold>Photo</bold> <em>booth</em>",
+	0, ENCODING_NONE, "HTML",
+	"PHOTO BOOTH");
+
+    /* HTML: unbalanced tags */
+    TESTCASE("<bold>American<bold> <bold>Apparel</bold>",
+	0, ENCODING_NONE, "HTML",
+	"AMERICAN APPAREL");
+
+    /* HTML: OMITTAG tags with and without end tags */
+    TESTCASE("<hr>Terry<hr> <hr>Richardson</hr>",
+	0, ENCODING_NONE, "HTML",
+	"TERRY RICHARDSON");
+
+    /* HTML: quoted tag parameters */
+    TESTCASE("<a href=\"foo.html\">leggings</a> <img src\"beer.jpg\">gastropub",
+	0, ENCODING_NONE, "HTML",
+	"LEGGINGS GASTROPUB");
+
+    /* HTML: unquoted tag parameters */
+    TESTCASE("<a href=foo.html>biodiesel</a> <img srcbeer.jpg>seitan",
+	0, ENCODING_NONE, "HTML",
+	"BIODIESEL SEITAN");
+
+    /* HTML: contents of SCRIPT tag */
+    TESTCASE("viral <script>bicycle rights</script>readymade",
+	0, ENCODING_NONE, "HTML",
+	"VIRAL READYMADE");
+
+    /* HTML: HTML4 SCRIPT tag with no contents */
+    TESTCASE("cardigan <script type=\"text/javascript\" "
+	     "src=\"truffaut.js\"></script>williamsburg",
+	0, ENCODING_NONE, "HTML",
+	"CARDIGAN WILLIAMSBURG");
+
+    /* HTML: XHTML SCRIPT empty-element-tag */
+    TESTCASE("brunch <script type=\"text/javascript\" "
+	     "src=\"cred.js\"/>shoreditch",
+	0, ENCODING_NONE, "HTML",
+	"BRUNCH SHOREDITCH");
+
+    /* HTML: contents of STYLE tag */
+    TESTCASE("pickled <style>whatever tumblr</style>stumptown",
+	0, ENCODING_NONE, "HTML",
+	"PICKLED STUMPTOWN");
+
+    /* HTML: comments */
+    TESTCASE("pinterest <!-- master cleanse -->forage",
+	0, ENCODING_NONE, "HTML",
+	"PINTEREST FORAGE");
+
+    /* HTML: simple entities */
+    TESTCASE("&dquot;Twee &amp; Keytar&dquot; &lt;dreamcatcher@umami.org&gt;",
+	0, ENCODING_NONE, "HTML",
+	"\"TWEE & KEYTAR\" <DREAMCATCHER@UMAMI.ORG>");
+
+    /* HTML: naked & is emitted */
+    TESTCASE("gentrify&<bold>sartorial</bold>",
+	0, ENCODING_NONE, "HTML",
+	"GENTRIFY&SARTORIAL");
+
+    /* HTML: but, non-zero length unterminated entities are stripped */
+    TESTCASE("tattooed&amp locavore",
+	0, ENCODING_NONE, "HTML",
+	"TATTOOED LOCAVORE");
+}
+#undef TESTCASE
+
 /* vim: set ft=c: */
