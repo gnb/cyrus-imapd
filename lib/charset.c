@@ -96,6 +96,7 @@ enum html_state {
     HTEXT,
     HTAGNAME,
     HTAGPARAMS,
+    HTAGSLASH,
     HENTITY,
     HSCRIPT,
     HSTYLE,
@@ -104,6 +105,9 @@ enum html_state {
 
 struct striphtml_state {
     struct buf name;
+#define HBEGIN		(1<<0)
+#define HEND		(1<<1)
+    unsigned int ends;
     /* state stack */
     int depth;
     enum html_state stack[2];
@@ -631,14 +635,20 @@ static void html_saw_tag(struct striphtml_state *s)
 
     /* gnb:TODO: what are we supposed to do with a nested <script> tag? */
 
-    if (state == HTEXT && !strcasecmp(tag, "script"))
-	html_go(s, HSCRIPT);
-    else if (state == HSCRIPT && !strcasecmp(tag, "/script"))
-	html_go(s, HTEXT);
-    else if (state == HTEXT && !strcasecmp(tag, "style"))
-	html_go(s, HSTYLE);
-    else if (state == HSTYLE && !strcasecmp(tag, "/style"))
-	html_go(s, HTEXT);
+    if (!strcasecmp(tag, "script")) {
+	if (state == HTEXT && s->ends == HBEGIN)
+	    html_go(s, HSCRIPT);
+	else if (state == HSCRIPT && s->ends == HEND)
+	    html_go(s, HTEXT);
+	/* BEGIN,END pair is doesn't affect state */
+    }
+    else if (!strcasecmp(tag, "style")) {
+	if (state == HTEXT && s->ends == HBEGIN)
+	    html_go(s, HSTYLE);
+	else if (state == HSTYLE && s->ends == HEND)
+	    html_go(s, HTEXT);
+	/* BEGIN,END pair is doesn't affect state */
+    }
     /* otherwise, no change */
 }
 
@@ -662,6 +672,7 @@ restart:
     case HTEXT:
 	if (c == '<') {
 	    html_push(s, HTAGNAME);
+	    s->ends = 0;
 	    buf_reset(&s->name);
 	}
 	else if (c == '&') {
@@ -677,6 +688,7 @@ restart:
     case HSTYLE:
 	if (c == '<') {
 	    html_push(s, HTAGNAME);
+	    s->ends = 0;
 	    buf_reset(&s->name);
 	}
 	break;
@@ -705,18 +717,33 @@ restart:
 	break;
 
     case HTAGNAME:
-	/* gnb:TODO handle xhtml <tag/> */
 	/* gnb:TODO handle > embedded in "param" */
-	if (c == '!' && !s->name.len) {
-	    /* markup declaration open delimiter - let's just assume
-	     * it's a comment */
-	    html_go(s, HCOMMENT);
-	}
-	else if (c == '/' && !s->name.len) {
-	    buf_putc(&s->name, c);
+	if (!s->ends) {
+	    /* first character after opening < */
+	    if (c == '!') {
+		/* markup declaration open delimiter - let's just assume
+		 * it's a comment */
+		html_go(s, HCOMMENT);
+	    }
+	    else if (c == '/') {
+		s->ends |= HEND;
+	    }
+	    else if (html_is_tag_char(c)) {
+		s->ends |= HBEGIN;
+		buf_putc(&s->name, c);
+	    }
+	    else {
+		/* apparently a naked <, emit the < and restart */
+		convert_putc(rock->next, '<');
+		html_go(s, HTEXT);
+		goto restart;
+	    }
 	}
 	else if (html_is_tag_char(c)) {
 	    buf_putc(&s->name, c);
+	}
+	else if (c == '/') {
+	    html_go(s, HTAGSLASH);
 	}
 	else if (c == '>') {
 	    html_pop(s);
@@ -731,6 +758,22 @@ restart:
 	if (c == '>') {
 	    html_pop(s);
 	    html_saw_tag(s);
+	}
+	else if (c == '/') {
+	    html_go(s, HTAGSLASH);
+	}
+	break;
+
+    case HTAGSLASH:
+	if (c == '>') {
+	    /* XHTML empty-element tag */
+	    s->ends |= HEND;
+	    html_pop(s);
+	    html_saw_tag(s);
+	}
+	else {
+	    /* whatever, keep stripping tag parameters */
+	    html_go(s, HTAGPARAMS);
 	}
 	break;
 
