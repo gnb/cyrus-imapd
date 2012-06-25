@@ -657,6 +657,7 @@ void striphtml2uni(struct convert_rock *rock, int c)
 {
     struct striphtml_state *s = (struct striphtml_state *)rock->state;
 
+restart:
     switch (html_top(s)) {
     case HTEXT:
 	if (c == '<') {
@@ -687,19 +688,19 @@ void striphtml2uni(struct convert_rock *rock, int c)
 	    convert_putc(rock->next, html_decode_entity(buf_cstring(&s->name)));
 	    html_go(s, HTEXT);
 	}
-	else if (!html_is_entity_char(c)) {
+	else if (html_is_entity_char(c)) {
+	    buf_putc(&s->name, c);
+	}
+	else {
 	    if (!s->name.len) {
 		/* probably an unescaped & - emit the & */
 		convert_putc(rock->next, '&');
-		convert_putc(rock->next, c);
 	    }
-	    else {
-		/* probably an incorrectly formed entity - swallow it */
-	    }
+	    /* else probably an incorrectly formed entity - strip it */
+
+	    /* Restart the state machine with the char following */
 	    html_go(s, HTEXT);
-	}
-	else {
-	    buf_putc(&s->name, c);
+	    goto restart;
 	}
 	break;
 
