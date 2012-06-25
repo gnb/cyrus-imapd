@@ -661,9 +661,11 @@ void striphtml2uni(struct convert_rock *rock, int c)
     case HTEXT:
 	if (c == '<') {
 	    html_push(s, HTAGNAME);
+	    buf_reset(&s->name);
 	}
 	else if (c == '&') {
 	    html_go(s, HENTITY);
+	    buf_reset(&s->name);
 	}
 	else {
 	    convert_putc(rock->next, c);
@@ -674,6 +676,7 @@ void striphtml2uni(struct convert_rock *rock, int c)
     case HSTYLE:
 	if (c == '<') {
 	    html_push(s, HTAGNAME);
+	    buf_reset(&s->name);
 	}
 	break;
 
@@ -693,7 +696,6 @@ void striphtml2uni(struct convert_rock *rock, int c)
 	    else {
 		/* probably an incorrectly formed entity - swallow it */
 	    }
-	    buf_reset(&s->name);
 	    html_go(s, HTEXT);
 	}
 	else {
@@ -712,15 +714,15 @@ void striphtml2uni(struct convert_rock *rock, int c)
 	else if (c == '/' && !s->name.len) {
 	    buf_putc(&s->name, c);
 	}
+	else if (html_is_tag_char(c)) {
+	    buf_putc(&s->name, c);
+	}
 	else if (c == '>') {
 	    html_pop(s);
 	    html_saw_tag(s);
 	}
-	else if (!html_is_tag_char(c)) {
-	    html_go(s, HTAGPARAMS);
-	}
 	else {
-	    buf_putc(&s->name, c);
+	    html_go(s, HTAGPARAMS);
 	}
 	break;
 
