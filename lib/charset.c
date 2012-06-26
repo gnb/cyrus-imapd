@@ -609,8 +609,13 @@ static void html_saw_character(struct convert_rock *rock)
 	    c = strtoul(ent+1, NULL, 10);
 	/* no need for format error checking, the lexer did that */
 
-	/* TODO: check for various evil characters */
+	/* TODO: check for various evil characters as per
+	 * http://dev.w3.org/html5/spec/tokenization.html#consume-a-character-reference
+	 */
     }
+    /* TODO: use a stringtable to check for all the character references in
+     * http://dev.w3.org/html5/spec/named-character-references.html#named-character-references
+     */
     else if (!strcmp(ent, "lt"))
 	c = '<';
     else if (!strcmp(ent, "gt"))
@@ -718,6 +723,9 @@ restart:
 	break;
 
     case HSCRIPTLT:	    /* 8.2.4.17 Script data less-than sign state */
+	/* TODO: deal with <! inside SCRIPT tags properly per
+	 * http://dev.w3.org/html5/spec/tokenization.html#script-data-less-than-sign-state
+	 */
 	if (c == '/') {
 	    s->ends = HEND;
 	    html_go(s, HTAGNAME);
@@ -794,7 +802,9 @@ restart:
 	if (html_isalpha(c)) {
 	    buf_putc(&s->name, c);
 	    /* TODO: we're supposed to look this up
-	     * to see if it's an known character */
+	     * to see if it's an known character so that
+	     * &notit; is parsed as the 4 chars
+	     * '¬' 'i' 't' ';' */
 	}
 	else {
 	    html_saw_character(rock);
@@ -916,6 +926,9 @@ restart:
 	break;
 
     case HCOMMENT:	    /* ignores all text until next '>' */
+	/* TODO: correctly parse commented out tags e.g.
+	 *  <!-- foo<b>bar</b>baz -->
+	 */
 	if (c == '>') {
 	    html_go(s, HDATA);
 	}
