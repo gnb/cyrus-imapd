@@ -322,7 +322,7 @@ static void test_extract(void)
 	0, ENCODING_NONE, "HTML",
 	"CARDIGAN WILLIAMSBURG");
 
-    /* HTML: XHTML SCRIPT empty-element-tag */
+    /* HTML: XHTML SCRIPT empty-element-tag aka self-closing tag */
     TESTCASE("brunch <script type=\"text/javascript\" "
 	     "src=\"cred.js\"/>shoreditch",
 	0, ENCODING_NONE, "HTML",
@@ -348,10 +348,20 @@ static void test_extract(void)
 	0, ENCODING_NONE, "HTML",
 	"GENTRIFY&SARTORIAL");
 
-    /* HTML: but, non-zero length unterminated entities are stripped */
+    /* HTML: non-zero length unterminated entities are emitted */
     TESTCASE("tattooed&amp locavore",
 	0, ENCODING_NONE, "HTML",
-	"TATTOOED LOCAVORE");
+	"TATTOOED& LOCAVORE");
+
+    /* HTML: decimal Unicode entities: U+267B RECYCLE SYMBOL */
+    TESTCASE("odd&#9851;future",
+	0, ENCODING_NONE, "HTML",
+	"ODD♻FUTURE");
+
+    /* HTML: hexadecimal Unicode entities: U+2704 SCISSORS */
+    TESTCASE("odd&#x2704;future",
+	0, ENCODING_NONE, "HTML",
+	"ODD✄FUTURE");
 }
 #undef TESTCASE
 

@@ -93,13 +93,21 @@ struct search_state {
 };
 
 enum html_state {
-    HTEXT,
+    HDATA,
+    HTAGOPEN,
+    HENDTAGOPEN,
     HTAGNAME,
+    HSCTAG,
     HTAGPARAMS,
-    HTAGSLASH,
-    HENTITY,
-    HSCRIPT,
-    HSTYLE,
+    HCHARACTER,
+    HCHARACTER2,
+    HCHARACTERHASH,
+    HCHARACTERHEX,
+    HCHARACTERDEC,
+    HSCRIPTDATA,
+    HSCRIPTLT,
+    HSTYLEDATA,
+    HSTYLELT,
     HCOMMENT
 };
 
@@ -588,20 +596,34 @@ void byte2buffer(struct convert_rock *rock, int c)
     buf_putc(buf, c & 0xff);
 }
 
-static int html_decode_entity(const char *ent)
+static void html_saw_character(struct convert_rock *rock)
 {
-    if (!strcmp(ent, "lt"))
-	return '<';
+    struct striphtml_state *s = (struct striphtml_state *)rock->state;
+    const char *ent = buf_cstring(&s->name);
+    int c;
+
+    if (ent[0] == '#') {
+	if (ent[1] == 'x' || ent[1] == 'X')
+	    c = strtoul(ent+2, NULL, 16);
+	else
+	    c = strtoul(ent+1, NULL, 10);
+	/* no need for format error checking, the lexer did that */
+
+	/* TODO: check for various evil characters */
+    }
+    else if (!strcmp(ent, "lt"))
+	c = '<';
     else if (!strcmp(ent, "gt"))
-	return '>';
+	c = '>';
     else if (!strcmp(ent, "amp"))
-	return '&';
+	c = '&';
     else if (!strcmp(ent, "quot"))
-	return '\'';
+	c = '\'';
     else if (!strcmp(ent, "dquot"))
-	return '"';
+	c = '"';
     else
-	return 0xfffd;	    /* unknown character */
+	c = 0xfffd;	    /* unknown character */
+    convert_putc(rock->next, c);
 }
 
 static void html_push(struct striphtml_state *s, enum html_state state)
@@ -636,17 +658,17 @@ static void html_saw_tag(struct striphtml_state *s)
     /* gnb:TODO: what are we supposed to do with a nested <script> tag? */
 
     if (!strcasecmp(tag, "script")) {
-	if (state == HTEXT && s->ends == HBEGIN)
-	    html_go(s, HSCRIPT);
-	else if (state == HSCRIPT && s->ends == HEND)
-	    html_go(s, HTEXT);
+	if (state == HDATA && s->ends == HBEGIN)
+	    html_go(s, HSCRIPTDATA);
+	else if (state == HSCRIPTDATA && s->ends == HEND)
+	    html_go(s, HDATA);
 	/* BEGIN,END pair is doesn't affect state */
     }
     else if (!strcasecmp(tag, "style")) {
-	if (state == HTEXT && s->ends == HBEGIN)
-	    html_go(s, HSTYLE);
-	else if (state == HSTYLE && s->ends == HEND)
-	    html_go(s, HTEXT);
+	if (state == HDATA && s->ends == HBEGIN)
+	    html_go(s, HSTYLEDATA);
+	else if (state == HSTYLEDATA && s->ends == HEND)
+	    html_go(s, HDATA);
 	/* BEGIN,END pair is doesn't affect state */
     }
     /* otherwise, no change */
@@ -656,12 +678,17 @@ static void html_saw_tag(struct striphtml_state *s)
  * Note we don't use isalnum - the test has to be in US-ASCII always
  * regardless of the charset of the text or the locale of this process
  */
-#define html_is_tag_char(c) \
+#define html_isalpha(c) \
     (((c) >= 'a' && (c) <= 'z') || \
      ((c) >= 'A' && (c) <= 'Z'))
-#define html_is_entity_char(c) \
-    (((c) >= 'a' && (c) <= 'z') || \
-     ((c) >= 'A' && (c) <= 'Z'))
+#define html_isxdigit(c) \
+    (((c) >= '0' && (c) <= '9') || \
+     ((c) >= 'a' && (c) <= 'f') || \
+     ((c) >= 'A' && (c) <= 'F'))
+#define html_isdigit(c) \
+    (((c) >= '0' && (c) <= '9'))
+#define html_isspace(c) \
+    ((c) == ' ' || (c) == '\t' || (c) == '\r' || (c) == '\n')
 
 void striphtml2uni(struct convert_rock *rock, int c)
 {
@@ -669,14 +696,13 @@ void striphtml2uni(struct convert_rock *rock, int c)
 
 restart:
     switch (html_top(s)) {
-    case HTEXT:
+    case HDATA:
 	if (c == '<') {
-	    html_push(s, HTAGNAME);
-	    s->ends = 0;
+	    html_push(s, HTAGOPEN);
 	    buf_reset(&s->name);
 	}
 	else if (c == '&') {
-	    html_go(s, HENTITY);
+	    html_go(s, HCHARACTER);
 	    buf_reset(&s->name);
 	}
 	else {
@@ -684,72 +710,197 @@ restart:
 	}
 	break;
 
-    case HSCRIPT:
-    case HSTYLE:
+    case HSCRIPTDATA:	    /* 8.2.4.6 Script data state */
 	if (c == '<') {
-	    html_push(s, HTAGNAME);
-	    s->ends = 0;
-	    buf_reset(&s->name);
+	    html_push(s, HSCRIPTLT);
 	}
+	/* else, strip the character */
 	break;
 
-    case HENTITY:
-	/* gnb:TODO decode &# entities */
-	if (c == ';') {
-	    /* finish a correctly formed entity - emit the entity */
-	    convert_putc(rock->next, html_decode_entity(buf_cstring(&s->name)));
-	    html_go(s, HTEXT);
-	}
-	else if (html_is_entity_char(c)) {
-	    buf_putc(&s->name, c);
+    case HSCRIPTLT:	    /* 8.2.4.17 Script data less-than sign state */
+	if (c == '/') {
+	    s->ends = HEND;
+	    html_go(s, HTAGNAME);
+	    buf_reset(&s->name);
 	}
 	else {
-	    if (!s->name.len) {
-		/* probably an unescaped & - emit the & */
-		convert_putc(rock->next, '&');
-	    }
-	    /* else probably an incorrectly formed entity - strip it */
-
-	    /* Restart the state machine with the char following */
-	    html_go(s, HTEXT);
+	    /* naked <, emit it and restart with current character */
+	    convert_putc(rock->next, c);
+	    html_pop(s);
 	    goto restart;
 	}
 	break;
 
-    case HTAGNAME:
-	/* gnb:TODO handle > embedded in "param" */
-	if (!s->ends) {
-	    /* first character after opening < */
-	    if (c == '!') {
-		/* markup declaration open delimiter - let's just assume
-		 * it's a comment */
-		html_go(s, HCOMMENT);
-	    }
-	    else if (c == '/') {
-		s->ends |= HEND;
-	    }
-	    else if (html_is_tag_char(c)) {
-		s->ends |= HBEGIN;
-		buf_putc(&s->name, c);
-	    }
-	    else {
-		/* apparently a naked <, emit the < and restart */
-		convert_putc(rock->next, '<');
-		html_go(s, HTEXT);
+    case HSTYLEDATA:
+	if (c == '<') {
+	    html_push(s, HSTYLELT);
+	}
+	/* else, strip the character */
+	break;
+
+    case HSTYLELT:
+	if (c == '/') {
+	    s->ends = HEND;
+	    html_go(s, HTAGNAME);
+	    buf_reset(&s->name);
+	}
+	else {
+	    /* naked <, emit it and restart with current character */
+	    convert_putc(rock->next, c);
+	    html_pop(s);
+	    goto restart;
+	}
+	break;
+
+    case HCHARACTER:	/* 8.2.4.2 Character reference in data state */
+	/* This is the "consume a character reference" algorithm
+	 * rewritten to use additional lexical states */
+	if (c == '#') {
+	    buf_putc(&s->name, c);
+	    html_go(s, HCHARACTERHASH);
+	}
+	else if (html_isalpha(c)) {
+	    buf_putc(&s->name, c);
+	    html_go(s, HCHARACTER2);
+	}
+	else {
+	    /* naked & - emit the & and restart */
+	    convert_putc(rock->next, '&');
+	    html_go(s, HDATA);
+	    goto restart;
+	}
+	break;
+
+    case HCHARACTERHASH:
+	/* '&' then '#' */
+	if (c == 'x' || c == 'X') {
+	    buf_putc(&s->name, c);
+	    html_go(s, HCHARACTERHEX);
+	}
+	else if (html_isdigit(c)) {
+	    buf_putc(&s->name, c);
+	    html_go(s, HCHARACTERDEC);
+	}
+	else {
+	    /* naked &# - emit the &# and restart */
+	    convert_putc(rock->next, '&');
+	    convert_putc(rock->next, '#');
+	    html_go(s, HDATA);
+	    goto restart;
+	}
+	break;
+
+    case HCHARACTER2:
+	if (html_isalpha(c)) {
+	    buf_putc(&s->name, c);
+	    /* TODO: we're supposed to look this up
+	     * to see if it's an known character */
+	}
+	else {
+	    html_saw_character(rock);
+	    html_go(s, HDATA);
+	    if (c != ';') {
+		/* character reference not correctly terminated -
+		 * restart with the next character */
 		goto restart;
 	    }
 	}
-	else if (html_is_tag_char(c)) {
+	break;
+
+    case HCHARACTERHEX:
+	if (html_isxdigit(c)) {
 	    buf_putc(&s->name, c);
 	}
+	else {
+	    html_saw_character(rock);
+	    html_go(s, HDATA);
+	    if (c != ';') {
+		/* character reference not correctly terminated -
+		 * restart with the next character */
+		goto restart;
+	    }
+	}
+	break;
+
+    case HCHARACTERDEC:
+	if (html_isdigit(c)) {
+	    buf_putc(&s->name, c);
+	}
+	else {
+	    html_saw_character(rock);
+	    html_go(s, HDATA);
+	    if (c != ';') {
+		/* character reference not correctly terminated -
+		 * restart with the next character */
+		goto restart;
+	    }
+	}
+	break;
+
+    case HTAGOPEN:  /* 8.2.4.8 Tag open state */
+	if (c == '!') {
+	    /* markup declaration open delimiter - let's just assume
+	     * it's a comment */
+	    html_pop(s);
+	    html_go(s, HCOMMENT);
+	}
 	else if (c == '/') {
-	    html_go(s, HTAGSLASH);
+	    html_go(s, HENDTAGOPEN);
+	}
+	else if (html_isalpha(c)) {
+	    s->ends = HBEGIN;
+	    buf_putc(&s->name, c);
+	    html_go(s, HTAGNAME);
+	}
+	else {
+	    /* apparently a naked <, emit the < and restart */
+	    convert_putc(rock->next, '<');
+	    html_pop(s);
+	    goto restart;
+	}
+	break;
+
+    case HENDTAGOPEN:	/* 8.2.4.9 End tag open state */
+	if (html_isalpha(c)) {
+	    s->ends = HEND;
+	    buf_putc(&s->name, c);
+	    html_go(s, HTAGNAME);
+	}
+	else {
+	    /* error */
+	    html_pop(s);
+	}
+	break;
+
+    case HTAGNAME:  /* 8.2.4.10 Tag name state */
+	/* gnb:TODO handle > embedded in "param" */
+	if (html_isspace(c)) {
+	    html_go(s, HTAGPARAMS);
+	}
+	else if (c == '/') {
+	    html_go(s, HSCTAG);
 	}
 	else if (c == '>') {
 	    html_pop(s);
 	    html_saw_tag(s);
 	}
+	else if (html_isalpha(c)) {
+	    buf_putc(&s->name, c);
+	}
 	else {
+	    /* error */
+	    html_pop(s);
+	}
+	break;
+
+    case HSCTAG:    /* 8.2.4.43 Self-closing start tag state */
+	if (c == '>') {
+	    s->ends = HBEGIN|HEND;
+	    html_pop(s);
+	    html_saw_tag(s);
+	}
+	else {
+	    /* whatever, keep stripping tag parameters */
 	    html_go(s, HTAGPARAMS);
 	}
 	break;
@@ -760,26 +911,13 @@ restart:
 	    html_saw_tag(s);
 	}
 	else if (c == '/') {
-	    html_go(s, HTAGSLASH);
-	}
-	break;
-
-    case HTAGSLASH:
-	if (c == '>') {
-	    /* XHTML empty-element tag */
-	    s->ends |= HEND;
-	    html_pop(s);
-	    html_saw_tag(s);
-	}
-	else {
-	    /* whatever, keep stripping tag parameters */
-	    html_go(s, HTAGPARAMS);
+	    html_go(s, HSCTAG);
 	}
 	break;
 
     case HCOMMENT:	    /* ignores all text until next '>' */
 	if (c == '>') {
-	    html_pop(s);
+	    html_go(s, HDATA);
 	}
 	break;
     }
@@ -792,7 +930,7 @@ void table_switch(struct convert_rock *rock, int charset_num)
     struct table_state *state = (struct table_state *)rock->state;
 
     /* wipe any current state */
-    memset(state, 0, sizeof(struct table_state)); 
+    memset(state, 0, sizeof(struct table_state));
 
     /* it's a table based lookup */
     if (chartables_charset_table[charset_num].table) {
@@ -984,7 +1122,7 @@ struct convert_rock *striphtml_init(struct convert_rock *next)
     struct convert_rock *rock = xzmalloc(sizeof(struct convert_rock));
     struct striphtml_state *s = xzmalloc(sizeof(struct striphtml_state));
     /* gnb:TODO: if a DOCTYPE is present, sniff it to detect XHTML rules */
-    html_push(s, HTEXT);
+    html_push(s, HDATA);
     rock->state = (void *)s;
     rock->f = striphtml2uni;
     rock->cleanup = striphtml_free;
