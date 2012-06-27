@@ -140,6 +140,9 @@ struct convert_rock {
 
 #define GROWSIZE 100
 
+int charset_debug;
+static const char *convert_name(struct convert_rock *rock);
+
 #define XX 127
 /*
  * Table for decoding hexadecimal in quoted-printable
@@ -227,6 +230,8 @@ const char *encoding_name(int encoding)
 
 static inline void convert_putc(struct convert_rock *rock, int c)
 {
+    if (charset_debug)
+	fprintf(stderr, "%s(0x%x)\n", convert_name(rock), c);
     rock->f(rock, c);
 }
 
@@ -1017,6 +1022,22 @@ restart:
 	}
 	break;
     }
+}
+
+static const char *convert_name(struct convert_rock *rock)
+{
+    if (rock->f == b64_2byte) return "b64_2byte";
+    if (rock->f == byte2buffer) return "byte2buffer";
+    if (rock->f == byte2search) return "byte2search";
+    if (rock->f == qp2byte) return "qp2byte";
+    if (rock->f == striphtml2uni) return "striphtml2uni";
+    if (rock->f == stripnl2uni) return "stripnl2uni";
+    if (rock->f == table2uni) return "table2uni";
+    if (rock->f == uni2searchform) return "uni2searchform";
+    if (rock->f == uni2utf8) return "uni2utf8";
+    if (rock->f == utf7_2uni) return "utf7_2uni";
+    if (rock->f == utf8_2uni) return "utf8_2uni";
+    return "wtf";
 }
 
 /* convert_rock manipulation routines */
