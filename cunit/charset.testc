@@ -343,7 +343,7 @@ static void test_extract(void)
 	"PINTEREST FORAGE");
 
     /* HTML: simple entities */
-    TESTCASE("&dquot;Twee &amp; Keytar&dquot; &lt;dreamcatcher@umami.org&gt;",
+    TESTCASE("&quot;Twee &amp; Keytar&quot; &lt;dreamcatcher@umami.org&gt;",
 	0, ENCODING_NONE, "HTML",
 	"\"TWEE & KEYTAR\" <DREAMCATCHER@UMAMI.ORG>");
 
@@ -463,6 +463,35 @@ static void test_extract(void)
     TESTCASE("A&#xFFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
     TESTCASE("A&#x10FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
     TESTCASE("A&#x10FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+
+    /* HTML: some of the more obscure named character references.  The
+     * tricky part is testing the case sensitivity and unusual character
+     * generation of the HTML character reference matching code, while
+     * the search normalisation code gets in the way. */
+
+    /* &alpha; and &Alpha; are both defined but both get normalised
+     * to GREEK CAPITAL LETTER ALPHA */
+    TESTCASE("A&alpha;B", 0, ENCODING_NONE, "HTML", "AΑB");
+    TESTCASE("A&Alpha;B", 0, ENCODING_NONE, "HTML", "AΑB");
+    /* &clubs; is defined, &Clubs is not */
+    TESTCASE("A&clubs;B", 0, ENCODING_NONE, "HTML", "A♣B");
+    TESTCASE("A&Clubs;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    /* &fjlig; is defined to emit a 2-codepoint sequence */
+    TESTCASE("A&fjlig;B", 0, ENCODING_NONE, "HTML", "AFJB");
+    /* &ycirc; emits a codepoint which is then normalised and capitalised */
+    TESTCASE("A&ycirc;B", 0, ENCODING_NONE, "HTML", "AYB");
+    /* &uparrow; and &UpArrow; are both defined to the same codepoint,
+     * which survives normalisation intact, but neither &UParrow; nor
+     * &upARROW; are defined.  &Uparrow is defined to a *different*
+     * codepoint which also survives normalisation. */
+    TESTCASE("A&uparrow;B", 0, ENCODING_NONE, "HTML", "A↑B");
+    TESTCASE("A&Uparrow;B", 0, ENCODING_NONE, "HTML", "A⇑B");
+    TESTCASE("A&UpArrow;B", 0, ENCODING_NONE, "HTML", "A↑B");
+    TESTCASE("A&UParrow;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&upARROW;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+
+    /* &nonesuch; is most definitely not defined */
+    TESTCASE("A&nonesuch;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
 }
 #undef TESTCASE
 

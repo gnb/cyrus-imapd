@@ -51,6 +51,7 @@
 #include "charset.h"
 #include "xmalloc.h"
 #include "chartable.h"
+#include "htmlchar.h"
 #include "util.h"
 
 #define U_REPLACEMENT	0xfffd
@@ -708,21 +709,19 @@ static void html_saw_character(struct convert_rock *rock)
 	    return;
 	}
     }
-    /* TODO: use a stringtable to check for all the character references in
-     * http://dev.w3.org/html5/spec/named-character-references.html#named-character-references
-     */
-    else if (!strcmp(ent, "lt"))
-	c = '<';
-    else if (!strcmp(ent, "gt"))
-	c = '>';
-    else if (!strcmp(ent, "amp"))
-	c = '&';
-    else if (!strcmp(ent, "quot"))
-	c = '\'';
-    else if (!strcmp(ent, "dquot"))
-	c = '"';
-    else
-	c = U_REPLACEMENT;	    /* unknown character */
+    else {
+	c = htmlchar_from_string(ent);
+	if (c == -1) {
+	    c = U_REPLACEMENT;	    /* unknown character */
+	}
+	else if (c > 0xffff) {
+	    /* Hack to handle a small minority of named characters
+	     * which map to a sequence of two Unicode codepoints. */
+	    convert_putc(rock->next, (c>>16) & 0xffff);
+	    convert_putc(rock->next, c & 0xffff);
+	    return;
+	}
+    }
     convert_putc(rock->next, c);
 }
 

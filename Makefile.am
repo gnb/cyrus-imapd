@@ -86,7 +86,7 @@ bin_PROGRAMS = imtest/imtest
 if SERVER
 BUILT_SOURCES += imap/imap_err.c imap/mupdate_err.c imap/nntp_err.c \
 	imap/lmtpstats.c imap/pushstats.c imap/rfc822_header.c \
-	imap/rfc822_header.h \
+	imap/rfc822_header.h lib/htmlchar.c lib/htmlchar.h \
 	imap/mailbox_update_notifier.pb-c.h imap/mailbox_update_notifier.pb-c.c
 CLEANFILES += imap/mailbox_update_notifier.pb-c.h imap/mailbox_update_notifier.pb-c.c
 noinst_LIBRARIES += imap/libimap.a
@@ -160,6 +160,7 @@ EXTRA_DIST = COPYRIGHT README.andrew SMakefile xversion.h \
 	cunit/cacert.pem cunit/cert.pem cunit/cunit.pl cunit/cunit-to-junit.pl cunit/key.pem cunit/vg.supp \
 	doc \
 	imap/imap_err.et imap/mupdate_err.et imap/nntp_err.et imap/rfc822_header.st \
+	lib/htmlchar.st \
 	lib/charset/aliases.txt lib/charset/big5.t \
 	lib/charset/gb2312.t lib/charset/iso-2022-jp.t \
 	lib/charset/iso-2022-kr.t lib/charset/iso-8859-10.t \
@@ -523,6 +524,12 @@ imap/rfc822_header.c: imap/rfc822_header.st
 
 imap/rfc822_header.h: imap/rfc822_header.st
 	${top_srcdir}/tools/compile_st.pl -h $< > $@.NEW && mv $@.NEW $@
+
+lib/htmlchar.c: lib/htmlchar.st
+	${top_srcdir}/tools/compile_st.pl -c $< > $@.NEW && mv $@.NEW $@
+
+lib/htmlchar.h: lib/htmlchar.st
+	${top_srcdir}/tools/compile_st.pl -h $< > $@.NEW && mv $@.NEW $@
 endif
 
 imtest_imtest_SOURCES = imtest/imtest.c
@@ -531,7 +538,8 @@ imtest_imtest_LDADD = $(LD_BASIC_ADD)
 nodist_lib_libcyrus_a_SOURCES = lib/chartable.c
 lib_libcyrus_a_SOURCES = lib/acl.c lib/acl_afs.c lib/auth.c lib/auth_krb.c \
 	lib/auth_krb5.c lib/auth_pts.c lib/auth_unix.c lib/bsearch.c \
-	lib/byteorder64.c lib/charset.c lib/crc32.c lib/cyrusdb.c
+	lib/byteorder64.c lib/htmlchar.c lib/htmlchar.h lib/charset.c \
+	lib/crc32.c lib/cyrusdb.c
 if USE_BERKELEY
 lib_libcyrus_a_SOURCES += lib/cyrusdb_berkeley.c
 endif
