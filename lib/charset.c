@@ -55,6 +55,9 @@
 
 #define U_REPLACEMENT	0xfffd
 
+#define unicode_isvalid(c) \
+	(!((c >= 0xd800 && c <= 0xdfff) || ((unsigned)c > 0x10ffff)))
+
 struct qp_state {
     int isheader;
     int bytesleft;
@@ -598,11 +601,76 @@ void byte2buffer(struct convert_rock *rock, int c)
     buf_putc(buf, c & 0xff);
 }
 
+/*
+ * The HTML5 standard mandates that certain Unicode code points
+ * cannot be generated using &#nnn; numerical character references,
+ * and should generate a parse error.  This function detects them.
+ */
+static int html_uiserror(int c)
+{
+    static const struct {
+	unsigned int mask, lo, hi;
+    } ranges[] = {
+	{ ~0U,    0x0001, 0x0008 },
+	{ ~0U,    0x000b, 0x000b },
+	{ ~0U,    0x000e, 0x001f },
+	{ ~0U,    0x007f, 0x009f },
+	{ ~0U,    0xfdd0, 0xfdef },
+	{ 0xffff, 0xfffe, 0xffff }
+    };
+    unsigned int i;
+
+    for (i = 0 ; i < VECTOR_SIZE(ranges) ; i++) {
+	unsigned c2 = (unsigned)c & ranges[i].mask;
+	if (c2 >= ranges[i].lo && c2 <= ranges[i].hi)
+	    return 1;
+    }
+    return 0;
+}
+
 static void html_saw_character(struct convert_rock *rock)
 {
     struct striphtml_state *s = (struct striphtml_state *)rock->state;
     const char *ent = buf_cstring(&s->name);
     int c;
+    static const int compat_chars[] = {
+	/* Mappings of old numeric character codepoints between 0x80 and
+	 * 0x9f inclusive, defined for backwards compatibility by HTML5,
+	 * to Unicode code points.  Note that some of these are mapped
+	 * to codepoints which are mandated to be parse errors. */
+	0x20AC, /* EURO SIGN (€) */
+	0x0081, /* <control> */
+	0x201A, /* SINGLE LOW-9 QUOTATION MARK (‚) */
+	0x0192, /* LATIN SMALL LETTER F WITH HOOK (ƒ) */
+	0x201E, /* DOUBLE LOW-9 QUOTATION MARK („) */
+	0x2026, /* HORIZONTAL ELLIPSIS (…) */
+	0x2020, /* DAGGER (†) */
+	0x2021, /* DOUBLE DAGGER (‡) */
+	0x02C6, /* MODIFIER LETTER CIRCUMFLEX ACCENT (ˆ) */
+	0x2030, /* PER MILLE SIGN (‰) */
+	0x0160, /* LATIN CAPITAL LETTER S WITH CARON (Š) */
+	0x2039, /* SINGLE LEFT-POINTING ANGLE QUOTATION MARK (‹) */
+	0x0152, /* LATIN CAPITAL LIGATURE OE (Œ) */
+	0x008D, /* <control> */
+	0x017D, /* LATIN CAPITAL LETTER Z WITH CARON (Ž) */
+	0x008F, /* <control> */
+	0x0090, /* <control> */
+	0x2018, /* LEFT SINGLE QUOTATION MARK (‘) */
+	0x2019, /* RIGHT SINGLE QUOTATION MARK (’) */
+	0x201C, /* LEFT DOUBLE QUOTATION MARK (“) */
+	0x201D, /* RIGHT DOUBLE QUOTATION MARK (”) */
+	0x2022, /* BULLET (•) */
+	0x2013, /* EN DASH (–) */
+	0x2014, /* EM DASH (—) */
+	0x02DC, /* SMALL TILDE (˜) */
+	0x2122, /* TRADE MARK SIGN (™) */
+	0x0161, /* LATIN SMALL LETTER S WITH CARON (š) */
+	0x203A, /* SINGLE RIGHT-POINTING ANGLE QUOTATION MARK (›) */
+	0x0153, /* LATIN SMALL LIGATURE OE (œ) */
+	0x009D, /* <control> */
+	0x017E, /* LATIN SMALL LETTER Z WITH CARON (ž) */
+	0x0178  /* LATIN CAPITAL LETTER Y WITH DIAERESIS (Ÿ) */
+    };
 
     if (ent[0] == '#') {
 	if (ent[1] == 'x' || ent[1] == 'X')
@@ -611,9 +679,22 @@ static void html_saw_character(struct convert_rock *rock)
 	    c = strtoul(ent+1, NULL, 10);
 	/* no need for format error checking, the lexer did that */
 
-	/* TODO: check for various evil characters as per
+	/* Perform character mapping and validation per
 	 * http://dev.w3.org/html5/spec/tokenization.html#consume-a-character-reference
 	 */
+	if (c == 0)
+	    c = U_REPLACEMENT;
+	else if (c >= 0x80 && c <= 0x9f)
+	    c = compat_chars[c-0x80];
+	else if (!unicode_isvalid(c))
+	    c = U_REPLACEMENT;	/* invalid Unicode codepoint */
+
+	if (html_uiserror(c)) {
+	    /* the HTML5 spec says this is a parse error, but it's
+	     * unclear what that means for us; we choose to strip the
+	     * character but could also emit the replacement character.  */
+	    return;
+	}
     }
     /* TODO: use a stringtable to check for all the character references in
      * http://dev.w3.org/html5/spec/named-character-references.html#named-character-references
