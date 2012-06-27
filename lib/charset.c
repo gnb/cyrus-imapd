@@ -53,6 +53,8 @@
 #include "chartable.h"
 #include "util.h"
 
+#define U_REPLACEMENT	0xfffd
+
 struct qp_state {
     int isheader;
     int bytesleft;
@@ -263,7 +265,7 @@ void qp2byte(struct convert_rock *rock, int c)
 	}
 	if (!s->bytesleft) {
 	    if (s->codepoint == -1)
-		convert_putc(rock->next, 0xfffd);
+		convert_putc(rock->next, U_REPLACEMENT);
 	    else
 		convert_putc(rock->next, s->codepoint & 0xff);
 	}
@@ -325,7 +327,7 @@ void table2uni(struct convert_rock *rock, int c)
     struct charmap *map = (struct charmap *)&s->curtable[0][c & 0xff];
 
     /* propagate errors */
-    if (c == 0xfffd) {
+    if (c == U_REPLACEMENT) {
 	convert_putc(rock->next, c);
 	return;
     }
@@ -341,7 +343,7 @@ void utf8_2uni(struct convert_rock *rock, int c)
     struct table_state *s = (struct table_state *)rock->state;
 
     /* propagate errors */
-    if (c == 0xfffd) {
+    if (c == U_REPLACEMENT) {
 	convert_putc(rock->next, c);
 	return;
     }
@@ -384,13 +386,13 @@ void utf7_2uni (struct convert_rock *rock, int c)
     struct table_state *s = (struct table_state *)rock->state;
 
     /* propagate errors */
-    if (c == 0xfffd) {
+    if (c == U_REPLACEMENT) {
 	convert_putc(rock->next, c);
 	return;
     }
 
     if (c & 0x80) { /* skip 8-bit chars */
-	convert_putc(rock->next, 0xfffd);
+	convert_putc(rock->next, U_REPLACEMENT);
 	return;
     }
 
@@ -456,7 +458,7 @@ void uni2searchform(struct convert_rock *rock, int c)
 
     /* invalid character becomes an Oxff - that's illegal utf-8,
      * so it won't match */
-    if (c == 0xfffd) {
+    if (c == U_REPLACEMENT) {
 	convert_putc(rock->next, 0xff);
 	return;
     }
@@ -548,7 +550,7 @@ void byte2search(struct convert_rock *rock, int c)
     int i, cur;
     unsigned char b = (unsigned char)c;
 
-    if (c == 0xfffd) {
+    if (c == U_REPLACEMENT) {
 	c = 0xff; /* searchable by invalid character! */
     }
 
@@ -627,7 +629,7 @@ static void html_saw_character(struct convert_rock *rock)
     else if (!strcmp(ent, "dquot"))
 	c = '"';
     else
-	c = 0xfffd;	    /* unknown character */
+	c = U_REPLACEMENT;	    /* unknown character */
     convert_putc(rock->next, c);
 }
 
@@ -1330,7 +1332,7 @@ void mimeheader_cat(struct convert_rock *target, const char *s)
 	charset = lookup_buf(start, endcharset-start);
 	if (charset < 0) {
 	    /* Unrecognized charset, nothing will match here */
-	    convert_putc(input, 0xfffd); /* unknown character */
+	    convert_putc(input, U_REPLACEMENT); /* unknown character */
 	}
 	else {
 	    struct convert_rock *extract;
