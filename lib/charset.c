@@ -329,32 +329,28 @@ void stripnl2uni(struct convert_rock *rock, int c)
 	convert_putc(rock->next, c);
 }
 
+/* Given an octet which is a codepoint in some 7bit or 8bit character
+ * set, emit the corresponding Unicode codepoint. */
 void table2uni(struct convert_rock *rock, int c)
 {
     struct table_state *s = (struct table_state *)rock->state;
-    struct charmap *map = (struct charmap *)&s->curtable[0][c & 0xff];
+    struct charmap *map;
 
-    /* propagate errors */
-    if (c == U_REPLACEMENT) {
-	convert_putc(rock->next, c);
-	return;
-    }
-
+    assert((unsigned)c <= 0xff);
+    map = (struct charmap *)&s->curtable[0][c & 0xff];
     if (map->c)
 	convert_putc(rock->next, map->c);
 
     s->curtable = s->initialtable + map->next;
 }
 
+/* Given an octet in a UTF-8 encoded string, possibly emit a Unicode
+ * code point */
 void utf8_2uni(struct convert_rock *rock, int c)
 {
     struct table_state *s = (struct table_state *)rock->state;
 
-    /* propagate errors */
-    if (c == U_REPLACEMENT) {
-	convert_putc(rock->next, c);
-	return;
-    }
+    assert((unsigned)c <= 0xff);
 
     if ((c & 0xf8) == 0xf0) { /* 11110xxx */
 	/* first of a 4 char sequence */
@@ -389,15 +385,13 @@ void utf8_2uni(struct convert_rock *rock, int c)
     }
 }
 
+/* Given an octet in a UTF-7 encoded string, possibly emit a Unicode
+ * code point */
 void utf7_2uni (struct convert_rock *rock, int c)
 {
     struct table_state *s = (struct table_state *)rock->state;
 
-    /* propagate errors */
-    if (c == U_REPLACEMENT) {
-	convert_putc(rock->next, c);
-	return;
-    }
+    assert((unsigned)c <= 0xff);
 
     if (c & 0x80) { /* skip 8-bit chars */
 	convert_putc(rock->next, U_REPLACEMENT);
@@ -457,6 +451,12 @@ void utf7_2uni (struct convert_rock *rock, int c)
     }
 }
 
+/*
+ * Given a Unicode codepoint, emit one or more Unicode codepoints in
+ * search-normalised form (having applied recursive Unicode
+ * decomposition, like U+2026 HORIZONTAL ELLIPSIS to the three
+ * characters U+2E U+2E U+2E).
+ */
 void uni2searchform(struct convert_rock *rock, int c)
 {
     struct canon_state *s = (struct canon_state *)rock->state;
@@ -464,10 +464,8 @@ void uni2searchform(struct convert_rock *rock, int c)
     int code;
     unsigned char table16, table8;
 
-    /* invalid character becomes an Oxff - that's illegal utf-8,
-     * so it won't match */
     if (c == U_REPLACEMENT) {
-	convert_putc(rock->next, 0xff);
+	convert_putc(rock->next, c);
 	return;
     }
 
@@ -530,8 +528,16 @@ void uni2searchform(struct convert_rock *rock, int c)
     }
 }
 
+/* Given a Unicode codepoint, emit valid UTF-8 encoded octets */
 void uni2utf8(struct convert_rock *rock, int c)
 {
+    if (!unicode_isvalid(c))
+	c = U_REPLACEMENT;
+
+    /* UTF-8 can encode code points up to 0x7fffffff, but the currently
+     * defined last valid codepoint is 0x10ffff so we only handle that
+     * range. */
+
     if (c > 0xffff) {
 	convert_putc(rock->next, 0xF0 + ((c >> 18) & 0x07));
 	convert_putc(rock->next, 0x80 + ((c >> 12) & 0x3f));
@@ -599,6 +605,7 @@ void byte2search(struct convert_rock *rock, int c)
     s->offset++;
 }
 
+/* Given an octet, append it to a buffer */
 void byte2buffer(struct convert_rock *rock, int c)
 {
     struct buf *buf = (struct buf *)rock->state;
