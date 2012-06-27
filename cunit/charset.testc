@@ -4,8 +4,12 @@
 #include "util.h"
 #include "charset.h"
 
+extern int charset_debug;
+
 /* The Unicode Replacement character 0xfffd in UTF-8 encoding */
 #define UTF8_REPLACEMENT    "\357\277\275"
+/* The Replacement char after search normalisation */
+#define SEARCH_REPLACEMENT  "\377"
 
 static void test_lookupname(void)
 {
@@ -385,6 +389,80 @@ static void test_extract(void)
 	"CŒDEZFYG")	/* œ capitalised to Œ,
 			   ž capitalised then normalised to Z,
 			 * Ÿ normalised to Y */
+
+    /* HTML: numerical character references to invalid Unicode
+     * codepoints and valid codepoints just adjacent to invalid
+     * ranges.  HTML5 requires us to emit a Replacement char. */
+    TESTCASE("A&#xd7ff;B", 0, ENCODING_NONE, "HTML", "A\355\237\277B");
+    TESTCASE("A&#xd800;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&#xd801;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&#xdffe;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&#xdfff;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&#xc000;B", 0, ENCODING_NONE, "HTML", "A\354\200\200B");
+    TESTCASE("A&#x10fffd;B", 0, ENCODING_NONE, "HTML", "A\364\217\277\275B");
+    TESTCASE("A&#x110000;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&#x7fffffff;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+    TESTCASE("A&#xffffffff;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+
+    /* HTML: zero numerical character reference.  The HTML5 spec says
+     * to return a Replacement char. */
+    TESTCASE("A&#0;B", 0, ENCODING_NONE, "HTML", "A"UTF8_REPLACEMENT"B");
+
+    /* HTML: numerical character references whose codepoints the HTML5
+     * spec says are a parse error.  We just silently swallow these. */
+    /* U+0001..U+0008 */
+    TESTCASE("A&#1;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#8;B", 0, ENCODING_NONE, "HTML", "AB");
+    /* U+000B */
+    TESTCASE("A&#xb;B", 0, ENCODING_NONE, "HTML", "AB");
+    /* U+000E..U+001F */
+    TESTCASE("A&#xe;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x1f;B", 0, ENCODING_NONE, "HTML", "AB");
+    /* U+007F..U+009f, when not a compatibility codepoint */
+    TESTCASE("A&#x7f;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x81;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x8D;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x8F;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x90;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x9D;B", 0, ENCODING_NONE, "HTML", "AB");
+    /* U+FDD0..U+FDEF */
+    TESTCASE("A&#xFDD0;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xFDEF;B", 0, ENCODING_NONE, "HTML", "AB");
+    /* the last two codepoints in each plane */
+    TESTCASE("A&#xFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x1FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x1FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x2FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x2FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x3FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x3FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x4FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x4FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x5FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x5FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x6FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x6FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x7FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x7FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x8FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x8FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x9FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x9FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xAFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xAFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xBFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xBFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xCFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xCFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xDFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xDFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xEFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xEFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xFFFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#xFFFFF;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x10FFFE;B", 0, ENCODING_NONE, "HTML", "AB");
+    TESTCASE("A&#x10FFFF;B", 0, ENCODING_NONE, "HTML", "AB");
 }
 #undef TESTCASE
 
