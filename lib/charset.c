@@ -238,8 +238,12 @@ const char *encoding_name(int encoding)
 
 static inline void convert_putc(struct convert_rock *rock, int c)
 {
-    if (charset_debug)
-	fprintf(stderr, "%s(0x%x)\n", convert_name(rock), c);
+    if (charset_debug) {
+	if ((unsigned)c < 0xff)
+	    fprintf(stderr, "%s(0x%x = '%c')\n", convert_name(rock), c, c);
+	else
+	    fprintf(stderr, "%s(0x%x)\n", convert_name(rock), c);
+    }
     rock->f(rock, c);
 }
 
@@ -692,6 +696,9 @@ static void html_saw_character(struct convert_rock *rock)
 	0x0178  /* LATIN CAPITAL LETTER Y WITH DIAERESIS (Ÿ) */
     };
 
+    if (charset_debug)
+	fprintf(stderr, "html_saw_character(%s)\n", ent);
+
     if (ent[0] == '#') {
 	if (ent[1] == 'x' || ent[1] == 'X')
 	    c = strtoul(ent+2, NULL, 16);
@@ -732,21 +739,57 @@ static void html_saw_character(struct convert_rock *rock)
     convert_putc(rock->next, c);
 }
 
+static const char *html_state_as_string(enum html_state state)
+{
+    switch (state) {
+    case HDATA: return "HDATA";
+    case HTAGOPEN: return "HTAGOPEN";
+    case HENDTAGOPEN: return "HENDTAGOPEN";
+    case HTAGNAME: return "HTAGNAME";
+    case HSCTAG: return "HSCTAG";
+    case HTAGPARAMS: return "HTAGPARAMS";
+    case HCHARACTER: return "HCHARACTER";
+    case HCHARACTER2: return "HCHARACTER2";
+    case HCHARACTERHASH: return "HCHARACTERHASH";
+    case HCHARACTERHEX: return "HCHARACTERHEX";
+    case HCHARACTERDEC: return "HCHARACTERDEC";
+    case HSCRIPTDATA: return "HSCRIPTDATA";
+    case HSCRIPTLT: return "HSCRIPTLT";
+    case HSTYLEDATA: return "HSTYLEDATA";
+    case HSTYLELT: return "HSTYLELT";
+    case HBOGUSCOMM: return "HBOGUSCOMM";
+    case HMUDECOPEN: return "HMUDECOPEN";
+    case HCOMMSTART: return "HCOMMSTART";
+    case HCOMMSTARTDASH: return "HCOMMSTARTDASH";
+    case HCOMM: return "HCOMM";
+    case HCOMMENDDASH: return "HCOMMENDDASH";
+    case HCOMMEND: return "HCOMMEND";
+    case HCOMMENDBANG: return "HCOMMENDBANG";
+    }
+    return "wtf?";
+}
+
 static void html_push(struct striphtml_state *s, enum html_state state)
 {
     assert(s->depth < (int)(sizeof(s->stack)/sizeof(s->stack[0])));
+    if (charset_debug)
+	fprintf(stderr, "html_push(%s)\n", html_state_as_string(state));
     s->stack[s->depth++] = state;
 }
 
 static int html_pop(struct striphtml_state *s)
 {
     assert(s->depth > 0);
+    if (charset_debug)
+	fprintf(stderr, "html_pop()\n");
     return s->stack[--s->depth];
 }
 
 static void html_go(struct striphtml_state *s, enum html_state state)
 {
     assert(s->depth > 0);
+    if (charset_debug)
+	fprintf(stderr, "html_go(%s)\n", html_state_as_string(state));
     s->stack[s->depth-1] = state;
 }
 
@@ -760,6 +803,12 @@ static void html_saw_tag(struct striphtml_state *s)
 {
     const char *tag = buf_cstring(&s->name);
     enum html_state state = html_top(s);
+
+    if (charset_debug)
+	fprintf(stderr, "html_saw_tag() state=%s tag=\"%s\" ends=%s,%s\n",
+		html_state_as_string(state), tag,
+		(s->ends & HBEGIN ? "BEGIN" : "-"),
+		(s->ends & HEND ? "END" : "-"));
 
     /* gnb:TODO: what are we supposed to do with a nested <script> tag? */
 
@@ -1757,6 +1806,9 @@ int charset_extract(search_text_receiver_t *receiver,
     struct convert_rock *input, *tobuffer;
     struct buf *out;
     size_t i;
+
+    if (charset_debug)
+	fprintf(stderr, "charset_extract()\n");
 
     /* Initialize character set mapping */
     if (charset < 0 || charset >= chartables_num_charsets) 
