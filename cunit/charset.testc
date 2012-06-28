@@ -337,12 +337,43 @@ static void test_extract(void)
 	0, ENCODING_NONE, "HTML",
 	"PICKLED STUMPTOWN");
 
-    /* HTML: comments */
+    /* HTML: comments, correctly formed */
     TESTCASE("pinterest <!-- master cleanse -->forage",
 	0, ENCODING_NONE, "HTML",
 	"PINTEREST FORAGE");
 
-    /* HTML: simple entities */
+    /* HTML: comments correctly formed with embedded -- */
+    TESTCASE("polaroid <!-- food -- truck -->letterpress",
+	0, ENCODING_NONE, "HTML",
+	"POLAROID LETTERPRESS");
+
+    /* HTML: comments correctly formed with embedded tags */
+    TESTCASE("semiotics <!-- messenger <hr> bag -->scenester",
+	0, ENCODING_NONE, "HTML",
+	"SEMIOTICS SCENESTER");
+
+    /* HTML: comments correctly formed with embedded -> */
+    TESTCASE("butcher <!-- cosby -> sweater -->whatever",
+	0, ENCODING_NONE, "HTML",
+	"BUTCHER WHATEVER");
+
+    /* HTML: comments correctly formed with ---> ending */
+    TESTCASE("ennui <!-- art party --->keffiyeh",
+	0, ENCODING_NONE, "HTML",
+	"ENNUI KEFFIYEH");
+
+    /* HTML: trivial comment */
+    TESTCASE("street <!-->art",
+	0, ENCODING_NONE, "HTML",
+	"STREET ART");
+
+    /* HTML: initial DOCTYPE is ignored */
+    TESTCASE("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" "
+	     "\"http://www.w3.org/TR/html4/strict.dtd\">ethnic sustainable",
+	0, ENCODING_NONE, "HTML",
+	"ETHNIC SUSTAINABLE");
+
+    /* HTML: simple character references */
     TESTCASE("&quot;Twee &amp; Keytar&quot; &lt;dreamcatcher@umami.org&gt;",
 	0, ENCODING_NONE, "HTML",
 	"\"TWEE & KEYTAR\" <DREAMCATCHER@UMAMI.ORG>");

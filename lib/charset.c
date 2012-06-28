@@ -114,7 +114,14 @@ enum html_state {
     HSCRIPTLT,
     HSTYLEDATA,
     HSTYLELT,
-    HCOMMENT
+    HBOGUSCOMM,
+    HMUDECOPEN,
+    HCOMMSTART,
+    HCOMMSTARTDASH,
+    HCOMM,
+    HCOMMENDDASH,
+    HCOMMEND,
+    HCOMMENDBANG
 };
 
 struct striphtml_state {
@@ -946,7 +953,8 @@ restart:
 	    /* markup declaration open delimiter - let's just assume
 	     * it's a comment */
 	    html_pop(s);
-	    html_go(s, HCOMMENT);
+	    html_go(s, HMUDECOPEN);
+	    buf_reset(&s->name);
 	}
 	else if (c == '/') {
 	    html_go(s, HENDTAGOPEN);
@@ -1019,14 +1027,77 @@ restart:
 	}
 	break;
 
-    case HCOMMENT:	    /* ignores all text until next '>' */
-	/* TODO: correctly parse commented out tags e.g.
-	 *  <!-- foo<b>bar</b>baz -->
-	 */
+    case HBOGUSCOMM:	    /* 8.2.4.44 Bogus comment state */
+	/* strip all text until closing > */
 	if (c == '>') {
 	    html_go(s, HDATA);
 	}
 	break;
+
+    case HMUDECOPEN:	    /* 8.2.4.45 Markup declaration open state */
+	if (c == '-') {
+	    buf_putc(&s->name, c);
+	    if (s->name.len == 2)
+		html_go(s, HCOMMSTART);
+	}
+	else {
+	    /* ignore DOCTYPE or CDATA */
+	    html_go(s, HBOGUSCOMM);
+	    goto restart;   /* in case it's a > */
+	}
+	break;
+
+    case HCOMMSTART:	    /* 8.2.4.46 Comment start state */
+	if (c == '-')
+	    html_go(s, HCOMMSTARTDASH);
+	else if (c == '>')
+	    html_go(s, HDATA);	/* very short comment <!-->  */
+	else
+	    html_go(s, HCOMM);
+	break;
+
+    case HCOMMSTARTDASH:    /* 8.2.4.47 Comment start dash state */
+	if (c == '-')
+	    html_go(s, HCOMMEND);
+	else if (c == '>')
+	    html_go(s, HDATA);	/* incorrectly formed -> comment end */
+	else
+	    html_go(s, HCOMM);
+	/* else strip */
+	break;
+
+    case HCOMM:		    /* 8.2.4.48 Comment state */
+	if (c == '-')
+	    html_go(s, HCOMMENDDASH);
+	/* else strip */
+	break;
+
+    case HCOMMENDDASH:	    /* 8.2.4.49 Comment end dash state */
+	if (c == '-')
+	    html_go(s, HCOMMEND);   /* -- pair in comment */
+	else
+	    html_go(s, HCOMM);	    /* lone - in comment */
+	break;
+
+    case HCOMMEND:	    /* 8.2.4.50 Comment end state */
+	if (c == '>')
+	    html_go(s, HDATA);	/* correctly formed --> comment end */
+	else if (c == '!')
+	    html_go(s, HCOMMENDBANG);	/* --! in a comment */
+	else if (c != '-')
+	    html_go(s, HCOMM);	/* -- in the middle of a comment */
+	/* else, --- in comment, strip */
+	break;
+
+    case HCOMMENDBANG:	    /* 8.2.4.51 Comment end bang state */
+	if (c == '-')
+	    html_go(s, HCOMMENDDASH);	/* --!- in comment */
+	else if (c == '>')
+	    html_go(s, HDATA);	/* --!> at end of comment */
+	else
+	    html_go(s, HCOMM);	/* --! in the middle of a comment */
+	break;
+
     }
 }
 
