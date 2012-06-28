@@ -87,7 +87,7 @@ static const struct search_engine default_search_engine = {
 
 static const struct search_engine *engine(void)
 {
-    switch (config_getswitch(IMAPOPT_SEARCH_ENGINE)) {
+    switch (config_getenum(IMAPOPT_SEARCH_ENGINE)) {
 #ifdef USE_SPHINX
     case IMAP_ENUM_SEARCH_ENGINE_SPHINX:
 	return &sphinx_search_engine;
