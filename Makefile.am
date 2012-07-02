@@ -112,7 +112,11 @@ service_PROGRAMS += imap/nntpd
 endif
 service_PROGRAMS += imap/pop3d imap/quota imap/reconstruct imap/smmapd
 if USE_SQUAT
-service_PROGRAMS += imap/squatter imap/squat_dump
+service_PROGRAMS += imap/squat_dump
+endif
+if SQUATTER
+# Despite the name, the squatter program handles any search engine
+service_PROGRAMS += imap/squatter
 endif
 if REPLICATION
 service_PROGRAMS += imap/sync_client imap/sync_reset imap/sync_server
