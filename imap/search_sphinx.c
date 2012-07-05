@@ -55,6 +55,7 @@
 #include "index.h"
 #include "imap_err.h"
 #include "global.h"
+#include "retry.h"
 #include "xmalloc.h"
 #include "xstrlcpy.h"
 #include "xstrlcat.h"
@@ -63,7 +64,12 @@
 
 #include <mysql/mysql.h>
 
-#define SOCKET_PATH	    "/sphinx/searchd.sock"
+/* Various locations, relative to the Cyrus config directory */
+#define SPHINXDIR	    "/sphinx"
+#define SOCKET_PATH	    SPHINXDIR"/searchd.sock"
+#define SPHINX_CONFIG	    SPHINXDIR"/sphinx.conf"
+
+#define SEARCHD		    "/usr/bin/searchd"
 
 /* Name of columns */
 #define COL_CYRUSID	"cyrusid"
@@ -679,14 +685,159 @@ static int end_update(search_text_receiver_t *rx)
     return r;
 }
 
+static int setup_sphinx_tree(void)
+{
+    static const char * const tobuild[] = {
+	SPHINXDIR,
+	SPHINXDIR"/binlog",
+	NULL
+    };
+    const char * const *dp;
+    char *path = NULL;
+    int r;
+
+    for (dp = tobuild ; *dp ; dp++) {
+	free(path);
+	path = strconcat(config_dir, *dp, (char *)NULL);
+	r = mkdir(path, 0700);
+	if (r < 0 && errno != EEXIST) {
+	    syslog(LOG_ERR, "IOERROR: unable to mkdir %s: %m", path);
+	    r = IMAP_IOERROR;
+	    goto out;
+	}
+    }
+
+out:
+    free(path);
+    return r;
+}
+
+static int setup_sphinx_config(int verbose)
+{
+    static const char config[] =
+	"index rt\n"
+	"{\n"
+	"    type = rt\n"
+	"    path = $sphinxdir/rt\n"
+	"    morphology = stem_en\n"
+	"    charset_type = utf-8\n"
+	"\n"
+	"    rt_attr_string = cyrusid\n"
+	"    rt_field = header_from\n"
+	"    rt_field = header_to\n"
+	"    rt_field = header_cc\n"
+	"    rt_field = header_bcc\n"
+	"    rt_field = header_subject\n"
+	"    rt_field = headers\n"
+	"    rt_field = body\n"
+	"}\n"
+	"\n"
+	"index latest\n"
+	"{\n"
+	"    type = rt\n"
+	"    path = $sphinxdir/latest\n"
+	"    rt_attr_string = mboxname\n"
+	"    rt_attr_uint = uidvalidity\n"
+	"    rt_attr_uint = uid\n"
+	"    rt_field = dummy\n"
+	"}\n"
+	"\n"
+	"searchd\n"
+	"{\n"
+	"    listen = $sphinxdir/searchd.sock:mysql41\n"
+	"    log = $sphinxdir/searchd.log\n"
+	"    pid_file = $sphinxdir/searchd.pid\n"
+	"    binlog_path = $sphinxdir/binlog\n"
+	"    compat_sphinxql_magics = 0\n"
+	"    workers = threads\n"
+	"}\n";
+    char *sphinxdir = NULL;
+    char *sphinx_config = NULL;
+    int fd = -1;
+    struct buf buf = BUF_INITIALIZER;
+    struct stat sb;
+    int r;
+
+    sphinxdir = strconcat(config_dir, SPHINXDIR, (char *)NULL);
+    sphinx_config = strconcat(config_dir, SPHINX_CONFIG, (char *)NULL);
+
+    if (stat(sphinx_config, &sb) &&
+	S_ISREG(sb.st_mode) &&
+	sb.st_size > 0)
+	goto out;	/* a non-zero file already exists */
+
+    if (verbose)
+	syslog(LOG_NOTICE, "Sphinx writing config file %s", sphinx_config);
+
+    fd = open(sphinx_config, O_WRONLY|O_CREAT|O_EXCL, 0600);
+    if (fd < 0) {
+	syslog(LOG_ERR, "IOERROR: unable to open %s for writing: %m",
+	       sphinx_config);
+	r = IMAP_IOERROR;
+	goto out;
+    }
+
+    buf_init_ro_cstr(&buf, config);
+    buf_replace_all(&buf, "$sphinxdir", sphinxdir);
+
+    r = retry_write(fd, buf.s, buf.len);
+    if (r < 0) {
+	syslog(LOG_ERR, "IOERROR: error writing %s: %m", sphinx_config);
+	r = IMAP_IOERROR;
+	goto out;
+    }
+    r = 0;
+
+out:
+    if (fd >= 0) close(fd);
+    free(sphinxdir);
+    free(sphinx_config);
+    buf_free(&buf);
+    return r;
+}
+
 static int start_daemon(int verbose)
 {
-    return 0;
+    char *config_file = NULL;
+    int r;
+
+    r = setup_sphinx_tree();
+    if (r) goto out;
+
+    r = setup_sphinx_config(verbose);
+    if (r) goto out;
+
+    if (verbose)
+	syslog(LOG_NOTICE, "Sphinx starting searchd");
+
+    config_file = strconcat(config_dir, SPHINX_CONFIG, (char *)NULL);
+    r = run_command(SEARCHD, "--config", config_file, (char *)NULL);
+    if (r) goto out;
+
+    r = 0;
+
+out:
+    free(config_file);
+    return r;
 }
 
 static int stop_daemon(int verbose)
 {
-    return 0;
+    char *config_file = NULL;
+    int r;
+
+    if (verbose)
+	syslog(LOG_NOTICE, "Sphinx stopping searchd");
+
+    config_file = strconcat(config_dir, SPHINX_CONFIG, (char *)NULL);
+    r = run_command(SEARCHD, "--config", config_file, "--stop", (char *)NULL);
+    if (r) goto out;
+
+    r = 0;
+
+out:
+    free(config_file);
+    return r;
 }
 
 const struct search_engine sphinx_search_engine = {
