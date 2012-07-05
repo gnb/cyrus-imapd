@@ -3790,6 +3790,9 @@ static int message2_parse_csections(message_t *m)
 {
     segment_t *part;
     segment_t *subpart;
+    segment_t *body;
+    segment_t *header;
+    int is_same;
     int nsubparts;
     int ins;
     uint32_t hdr_start, hdr_len;
@@ -3844,20 +3847,30 @@ static int message2_parse_csections(message_t *m)
 	    if (hdr_len || con_len) {
 
 		subpart = part;
-		if (partno) {
+
+		body = segment_find_child(part, ID_BODY);
+		header = segment_find_child(part, ID_HEADER);
+		is_same = (header &&
+			   header->offset == hdr_start &&
+			   header->length == hdr_len &&
+			   body &&
+			   body->offset == con_start &&
+			   body->length == con_len);
+
+		if (partno && !is_same) {
 		    subpart = part_new(m, partno);
 		    segment_append(segment_find_child(part, ID_BODY), subpart);
 		}
 		get_part(subpart)->charset = charset;
 		get_part(subpart)->encoding = encoding;
 
-		if (hdr_len > 0) {
+		if (hdr_len > 0 && !is_same) {
 		    segment_t *header = segment_new(ID_HEADER);
 		    segment_set_shape(header, hdr_start, hdr_len);
 		    segment_append(subpart, header);
 		}
 
-		if (con_len > 0) {
+		if (con_len > 0 && !is_same) {
 		    segment_t *body = segment_new(ID_BODY);
 		    segment_set_shape(body, con_start, con_len);
 		    segment_append(subpart, body);
