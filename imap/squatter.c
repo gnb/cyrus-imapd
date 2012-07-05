@@ -94,12 +94,20 @@ const int SKIP_FUZZ = 60;
 static int verbose = 0;
 static int skip_unmodified = 0;
 static int incremental_mode = 0;
+static int recursive_flag = 0;
+static int annotation_flag = 0;
 static search_text_receiver_t *rx = NULL;
 
 static int usage(const char *name)
 {
     fprintf(stderr,
-	    "usage: %s [-C <alt_config>] [-r] [-s] [-a] [-v] [mailbox...]\n",
+	    "usage: %s [-C <alt_config>] [-v] [-s] [-a] [mailbox...]\n",
+	    name);
+    fprintf(stderr,
+	    "       %s [-C <alt_config>] [-v] [-s] [-a] -r mailbox [...]\n",
+	    name);
+    fprintf(stderr,
+	    "       %s [-C <alt_config>] [-v] -c (start|stop)\n",
 	    name);
  
     exit(EC_USAGE);
@@ -135,16 +143,14 @@ out:
 }
 
 /* This is called once for each mailbox we're told to index. */
-static int index_me(char *name, int matchlen __attribute__((unused)),
-		    int maycreate __attribute__((unused)),
-		    void *rock) {
+static int index_one(const char *name)
+{
     struct mboxlist_entry *mbentry = NULL;
     struct index_state *state = NULL;
     int r;
     char *fname;
     struct stat sbuf;
     char extname[MAX_MAILBOX_BUFFER];
-    int use_annot = *((int *) rock);
 
     /* Convert internal name to external */
     (*squat_namespace.mboxname_toexternal)(&squat_namespace, name,
@@ -171,7 +177,7 @@ static int index_me(char *name, int matchlen __attribute__((unused)),
 
     /* make sure the mailbox (or an ancestor) has
        /vendor/cmu/cyrus-imapd/squat set to "true" */
-    if (use_annot) {
+    if (annotation_flag) {
 	char buf[MAX_MAILBOX_BUFFER] = "", *p;
 	struct buf attrib = BUF_INITIALIZER;
 	int domainlen = 0;
@@ -256,14 +262,53 @@ static int addmbox(char *name,
     return 0;
 }
 
+static void do_indexer(int nmboxnames, const char **mboxnames)
+{
+    int i;
+    strarray_t sa = STRARRAY_INITIALIZER;
+    char buf[MAX_MAILBOX_PATH + 1];
+
+    rx = search_begin_update(verbose);
+    if (rx == NULL)
+	return;	/* no indexer defined */
+
+    if (!nmboxnames) {
+	assert(!recursive_flag);
+	strlcpy(buf, "*", sizeof(buf));
+	(*squat_namespace.mboxlist_findall) (&squat_namespace, buf, 1,
+					     0, 0, addmbox, &sa);
+    }
+
+    for (i = 0; i < nmboxnames; i++) {
+	/* Translate any separators in mailboxname */
+	(*squat_namespace.mboxname_tointernal) (&squat_namespace,
+						mboxnames[i], NULL, buf);
+	strarray_append(&sa, buf);
+	if (recursive_flag) {
+	    strlcat(buf, ".*", sizeof(buf));
+	    (*squat_namespace.mboxlist_findall) (&squat_namespace, buf, 1,
+						 0, 0, addmbox, &sa);
+	}
+    }
+
+    for (i = 0 ; i < sa.count ; i++) {
+	index_one(sa.data[i]);
+	/* Ignore errors: most will be mailboxes moving around */
+    }
+
+    search_end_update(rx);
+
+    strarray_fini(&sa);
+}
+
+
 int main(int argc, char **argv)
 {
     int opt;
     char *alt_config = NULL;
-    int rflag = 0, use_annot = 0;
     int i;
-    char buf[MAX_MAILBOX_PATH + 1];
     int r;
+    enum { UNKNOWN, INDEXER, START_DAEMON, STOP_DAEMON } mode = UNKNOWN;
 
     if ((geteuid()) == 0 && (become_cyrus() != 0)) {
 	fatal("must run as the Cyrus user", EC_USAGE);
@@ -271,10 +316,20 @@ int main(int argc, char **argv)
 
     setbuf(stdout, NULL);
 
-    while ((opt = getopt(argc, argv, "C:rsiav")) != EOF) {
+    while ((opt = getopt(argc, argv, "C:c:rsiav")) != EOF) {
 	switch (opt) {
 	case 'C':		/* alt config file */
 	    alt_config = optarg;
+	    break;
+
+	case 'c':		/* daemon control mode */
+	    if (mode != UNKNOWN) usage(argv[0]);
+	    if (!strcmp(optarg, "start"))
+		mode = START_DAEMON;
+	    else if (!strcmp(optarg, "stop"))
+		mode = STOP_DAEMON;
+	    else
+		usage(argv[0]);
 	    break;
 
 	case 'v':		/* verbose */
@@ -282,25 +337,36 @@ int main(int argc, char **argv)
 	    break;
 
 	case 'r':		/* recurse */
-	    rflag = 1;
+	    if (mode != UNKNOWN && mode != INDEXER) usage(argv[0]);
+	    recursive_flag = 1;
+	    mode = INDEXER;
 	    break;
 
 	case 's':		/* skip unmodifed */
+	    if (mode != UNKNOWN && mode != INDEXER) usage(argv[0]);
 	    skip_unmodified = 1;
+	    mode = INDEXER;
 	    break;
 
 	case 'i':		/* incremental mode */
+	    if (mode != UNKNOWN && mode != INDEXER) usage(argv[0]);
 	    incremental_mode = 1;
+	    mode = INDEXER;
 	    break;
 
 	case 'a':		/* use /squat annotation */
-	    use_annot = 1;
+	    if (mode != UNKNOWN && mode != INDEXER) usage(argv[0]);
+	    annotation_flag = 1;
+	    mode = INDEXER;
 	    break;
 
 	default:
 	    usage("squatter");
 	}
     }
+
+    if (mode == UNKNOWN)
+	mode = INDEXER;
 
     cyrus_init(alt_config, "squatter", 0);
 
@@ -317,46 +383,22 @@ int main(int argc, char **argv)
     mboxlist_init(0);
     mboxlist_open(NULL);
 
-    rx = search_begin_update(verbose);
-    if (rx == NULL)
-	goto out;	/* no indexer defined */
-
-    if (optind == argc) {
-	strarray_t sa = STRARRAY_INITIALIZER;
-
-	if (rflag) {
-	    fprintf(stderr, "please specify a mailbox to recurse from\n");
-	    exit(EC_USAGE);
-	}
-	assert(!rflag);
-	strlcpy(buf, "*", sizeof(buf));
-	(*squat_namespace.mboxlist_findall) (&squat_namespace, buf, 1,
-					     0, 0, addmbox, &sa);
-
-	for (i = 0 ; i < sa.count ; i++) {
-	    index_me(sa.data[i], strlen(sa.data[i]), 0, &use_annot);
-	    /* Ignore errors: most will be mailboxes moving around */
-	}
-	strarray_fini(&sa);
+    switch (mode) {
+    case INDEXER:
+	/* -r requires at least one mailbox */
+	if (recursive_flag && optind == argc) usage(argv[0]);
+	do_indexer(argc-optind, (const char **)argv+optind);
+	syslog(LOG_NOTICE, "done indexing mailboxes");
+	break;
+    case START_DAEMON:
+	if (search_start_daemon(verbose))
+	    exit(EC_TEMPFAIL);
+	break;
+    case STOP_DAEMON:
+	if (search_stop_daemon(verbose))
+	    exit(EC_TEMPFAIL);
+	break;
     }
-
-    for (i = optind; i < argc; i++) {
-	/* Translate any separators in mailboxname */
-	(*squat_namespace.mboxname_tointernal) (&squat_namespace, argv[i],
-						NULL, buf);
-	index_me(buf, 0, 0, &use_annot);
-	if (rflag) {
-	    strlcat(buf, ".*", sizeof(buf));
-	    (*squat_namespace.mboxlist_findall) (&squat_namespace, buf, 1,
-						 0, 0, index_me,
-						 &use_annot);
-	}
-    }
-
-    search_end_update(rx);
-
-out:
-    syslog(LOG_NOTICE, "done indexing mailboxes");
 
     seen_done();
     mboxlist_close();
