@@ -4390,19 +4390,19 @@ void index_getsearchtext(message_t *msg,
     message_foreach_text_section(msg, getsearchtext_cb, &str);
     receiver->end_part(receiver, SEARCH_PART_BODY);
 
-    if (message_get_field(msg, "From", MESSAGE_SEARCH, &buf))
+    if (!message_get_field(msg, "From", MESSAGE_SEARCH, &buf))
 	stuff_part(receiver, SEARCH_PART_FROM, &buf);
 
-    if (message_get_field(msg, "To", MESSAGE_SEARCH, &buf))
+    if (!message_get_field(msg, "To", MESSAGE_SEARCH, &buf))
 	stuff_part(receiver, SEARCH_PART_TO, &buf);
 
-    if (message_get_field(msg, "Cc", MESSAGE_SEARCH, &buf))
+    if (!message_get_field(msg, "Cc", MESSAGE_SEARCH, &buf))
 	stuff_part(receiver, SEARCH_PART_CC, &buf);
 
-    if (message_get_field(msg, "Bcc", MESSAGE_SEARCH, &buf))
+    if (!message_get_field(msg, "Bcc", MESSAGE_SEARCH, &buf))
 	stuff_part(receiver, SEARCH_PART_BCC, &buf);
 
-    if (message_get_field(msg, "Subject", MESSAGE_SEARCH, &buf))
+    if (!message_get_field(msg, "Subject", MESSAGE_SEARCH, &buf))
 	stuff_part(receiver, SEARCH_PART_SUBJECT, &buf);
 
     receiver->end_message(receiver, uid);
