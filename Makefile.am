@@ -599,7 +599,9 @@ lib_libcyrus_min_a_SOURCES += lib/map_nommap.c
 endif
 endif
 lib_libcyrus_min_a_SOURCES += lib/mpool.c lib/retry.c lib/strarray.c \
-	lib/strhash.c lib/util.c lib/xmalloc.c lib/xstrlcat.c lib/xstrlcpy.c lib/hashu64.c lib/me.c
+	lib/strhash.c lib/util.c lib/xmalloc.c lib/xstrlcat.c \
+	lib/xstrlcpy.c lib/hashu64.c lib/me.c \
+	lib/command.c
 lib_libcyrus_min_a_LIBADD = $(LIBOBJS)
 
 
