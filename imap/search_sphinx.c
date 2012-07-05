@@ -679,11 +679,23 @@ static int end_update(search_text_receiver_t *rx)
     return r;
 }
 
+static int start_daemon(int verbose)
+{
+    return 0;
+}
+
+static int stop_daemon(int verbose)
+{
+    return 0;
+}
+
 const struct search_engine sphinx_search_engine = {
     "Sphinx",
     0,
     search_sphinx,
     begin_update,
-    end_update
+    end_update,
+    start_daemon,
+    stop_daemon
 };
 
