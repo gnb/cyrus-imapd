@@ -53,6 +53,7 @@
 #include <sys/wait.h>
 
 #include "imap/imap_err.h"
+#include "signals.h"
 #include "strarray.h"
 
 int run_command(const char *argv0, ...)

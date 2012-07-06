@@ -306,7 +306,6 @@ int main(int argc, char **argv)
 {
     int opt;
     char *alt_config = NULL;
-    int i;
     int r;
     enum { UNKNOWN, INDEXER, START_DAEMON, STOP_DAEMON } mode = UNKNOWN;
 
@@ -384,6 +383,8 @@ int main(int argc, char **argv)
     mboxlist_open(NULL);
 
     switch (mode) {
+    case UNKNOWN:
+	break;
     case INDEXER:
 	/* -r requires at least one mailbox */
 	if (recursive_flag && optind == argc) usage(argv[0]);

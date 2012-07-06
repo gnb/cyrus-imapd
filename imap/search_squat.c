@@ -113,7 +113,7 @@ static int parse_doc_name(SquatSearchResult *r, const char *doc_name)
     }
 
     index = index_finduid(r->state, doc_UID);
-    if (index >= 0 && index_getuid(r->state, index) != doc_UID)
+    if (index >= 0 && index_getuid(r->state, index) != (unsigned)doc_UID)
 	index = -1;
 
     return index;
