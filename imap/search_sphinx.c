@@ -101,11 +101,18 @@ static MYSQL *get_connection(void)
 	syslog(LOG_ERR, "IOERROR: failed to connect to Sphinx: %s",
 	       mysql_error(c));
 	mysql_close(c);
+	mysql_library_end();
 	c = NULL;
     }
 
     free(socket_path);
     return c;
+}
+
+static void close_connection(MYSQL *c)
+{
+    mysql_close(c);
+    mysql_library_end();
 }
 
 static int parse_cyrusid(const char *cyrusid,
@@ -254,7 +261,7 @@ static int search_sphinx(unsigned* msg_list, struct index_state *state,
 
 out:
     buf_free(&query);
-    mysql_close(conn);
+    close_connection(conn);
     return r;
 }
 
@@ -680,7 +687,7 @@ static int end_update(search_text_receiver_t *rx)
     for (i = 0 ; i < SEARCH_NUM_PARTS ; i++)
 	buf_free(&tr->parts[i]);
     buf_free(&tr->query);
-    mysql_close(tr->conn);
+    close_connection(tr->conn);
     free(tr);
 
     return r;
