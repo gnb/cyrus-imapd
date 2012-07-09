@@ -762,7 +762,7 @@ static int setup_sphinx_config(int verbose)
     sphinxdir = strconcat(config_dir, SPHINXDIR, (char *)NULL);
     sphinx_config = strconcat(config_dir, SPHINX_CONFIG, (char *)NULL);
 
-    if (stat(sphinx_config, &sb) &&
+    if (stat(sphinx_config, &sb) == 0 &&
 	S_ISREG(sb.st_mode) &&
 	sb.st_size > 0)
 	goto out;	/* a non-zero file already exists */
