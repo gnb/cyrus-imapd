@@ -678,7 +678,7 @@ static int end_update(search_text_receiver_t *rx)
     r = flush(tr, /*force*/1);
 
     for (i = 0 ; i < SEARCH_NUM_PARTS ; i++)
-	buf_free(&tr->parts[tr->part]);
+	buf_free(&tr->parts[i]);
     buf_free(&tr->query);
     mysql_close(tr->conn);
     free(tr);
