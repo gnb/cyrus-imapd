@@ -191,7 +191,9 @@ static void add_match(MYSQL *conn, struct buf *query, int *np,
 
 	if (*np)
 	    buf_appendcstr(query, " ");
-	buf_printf(query, "@%s: %s", field, e2.s);
+	if (field)
+	    buf_printf(query, "@%s:", field);
+	buf_append(query, &e2);
 	(*np)++;
     }
 }
@@ -214,8 +216,10 @@ static int search_sphinx(unsigned* msg_list, struct index_state *state,
     add_match(conn, &query, &n, args->from, COL_FROM);
     add_match(conn, &query, &n, args->cc, COL_CC);
     add_match(conn, &query, &n, args->subject, COL_SUBJECT);
-    add_match(conn, &query, &n, args->header_name, COL_TO);
+    add_match(conn, &query, &n, args->header_name, COL_HEADERS);
+    add_match(conn, &query, &n, args->header, COL_HEADERS);
     add_match(conn, &query, &n, args->body, COL_BODY);
+    add_match(conn, &query, &n, args->text, NULL);
     buf_appendcstr(&query, "')");
     // get sphinx to sort by most recent date first
     buf_appendcstr(&query, " ORDER BY "COL_ORDER" DESC");
