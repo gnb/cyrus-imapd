@@ -107,9 +107,12 @@ static int usage(const char *name)
 	    "       %s [-C <alt_config>] [-v] [-s] [-a] -r mailbox [...]\n",
 	    name);
     fprintf(stderr,
+	    "       %s [-C <alt_config>] [-v] [-r] -e term mailbox [...]\n",
+	    name);
+    fprintf(stderr,
 	    "       %s [-C <alt_config>] [-v] -c (start|stop)\n",
 	    name);
- 
+
     exit(EC_USAGE);
 }
 
@@ -262,52 +265,98 @@ static int addmbox(char *name,
     return 0;
 }
 
-static void do_indexer(int nmboxnames, const char **mboxnames)
+static void expand_mboxnames(strarray_t *sa, int nmboxnames,
+			     const char **mboxnames)
 {
     int i;
-    strarray_t sa = STRARRAY_INITIALIZER;
     char buf[MAX_MAILBOX_PATH + 1];
-
-    rx = search_begin_update(verbose);
-    if (rx == NULL)
-	return;	/* no indexer defined */
 
     if (!nmboxnames) {
 	assert(!recursive_flag);
 	strlcpy(buf, "*", sizeof(buf));
 	(*squat_namespace.mboxlist_findall) (&squat_namespace, buf, 1,
-					     0, 0, addmbox, &sa);
+					     0, 0, addmbox, sa);
     }
 
     for (i = 0; i < nmboxnames; i++) {
 	/* Translate any separators in mailboxname */
 	(*squat_namespace.mboxname_tointernal) (&squat_namespace,
 						mboxnames[i], NULL, buf);
-	strarray_append(&sa, buf);
+	strarray_append(sa, buf);
 	if (recursive_flag) {
 	    strlcat(buf, ".*", sizeof(buf));
 	    (*squat_namespace.mboxlist_findall) (&squat_namespace, buf, 1,
-						 0, 0, addmbox, &sa);
+						 0, 0, addmbox, sa);
 	}
     }
+}
 
-    for (i = 0 ; i < sa.count ; i++) {
-	index_one(sa.data[i]);
+static void do_indexer(const strarray_t *sa)
+{
+    int i;
+
+    rx = search_begin_update(verbose);
+    if (rx == NULL)
+	return;	/* no indexer defined */
+
+    for (i = 0 ; i < sa->count ; i++) {
+	index_one(sa->data[i]);
 	/* Ignore errors: most will be mailboxes moving around */
     }
 
     search_end_update(rx);
-
-    strarray_fini(&sa);
 }
 
+static void do_search(const strarray_t *terms, const strarray_t *mboxnames)
+{
+    struct index_state *state = NULL;
+    int i;
+    int r;
+    int j;
+    struct searchargs searchargs;
+    int count;
+    unsigned int *msgno_list;
+
+    /* Construct a struct searchargs which describes the
+     * search terms. */
+    memset(&searchargs, 0, sizeof(searchargs));
+    for (i = 0 ; i < terms->count ; i++)
+	appendstrlistpat(&searchargs.text,
+			 charset_convert(terms->data[i],
+					 /*US-ASCII*/0, charset_flags));
+
+    /* At the moment we only have a single-mailbox API for searching
+     * so we have to handle multiple mailbox searches with a loop */
+
+    for (i = 0 ; i < mboxnames->count ; i++) {
+	const char *mboxname = mboxnames->data[i];
+
+	r = index_open(mboxname, NULL, &state);
+	if (r) {
+	    fprintf(stderr, "Cannot open mailbox %s: %s\n",
+		    mboxname, error_message(r));
+	    continue;
+	}
+	printf("mailbox %s\n", mboxname);
+	msgno_list = xmalloc(sizeof(unsigned int) * state->exists);
+	count = search_prefilter_messages(msgno_list, state, &searchargs);
+	for (j = 0 ; j < count ; j++)
+	    printf("uid %u\n", state->map[msgno_list[j]-1].record.uid);
+	free(msgno_list);
+	index_close(&state);
+    }
+
+    freestrlist(searchargs.text);
+}
 
 int main(int argc, char **argv)
 {
     int opt;
     char *alt_config = NULL;
     int r;
-    enum { UNKNOWN, INDEXER, START_DAEMON, STOP_DAEMON } mode = UNKNOWN;
+    strarray_t mboxnames = STRARRAY_INITIALIZER;
+    strarray_t terms = STRARRAY_INITIALIZER;
+    enum { UNKNOWN, INDEXER, SEARCH, START_DAEMON, STOP_DAEMON } mode = UNKNOWN;
 
     if ((geteuid()) == 0 && (become_cyrus() != 0)) {
 	fatal("must run as the Cyrus user", EC_USAGE);
@@ -315,7 +364,7 @@ int main(int argc, char **argv)
 
     setbuf(stdout, NULL);
 
-    while ((opt = getopt(argc, argv, "C:c:rsiav")) != EOF) {
+    while ((opt = getopt(argc, argv, "C:c:e:rsiav")) != EOF) {
 	switch (opt) {
 	case 'C':		/* alt config file */
 	    alt_config = optarg;
@@ -329,6 +378,12 @@ int main(int argc, char **argv)
 		mode = STOP_DAEMON;
 	    else
 		usage(argv[0]);
+	    break;
+
+	case 'e':		/* add a search term */
+	    if (mode != UNKNOWN && mode != SEARCH) usage(argv[0]);
+	    strarray_append(&terms, optarg);
+	    mode = SEARCH;
 	    break;
 
 	case 'v':		/* verbose */
@@ -369,8 +424,6 @@ int main(int argc, char **argv)
 
     cyrus_init(alt_config, "squatter", 0);
 
-    syslog(LOG_NOTICE, "indexing mailboxes");
-
     /* Set namespace -- force standard (internal) */
     if ((r = mboxname_init_namespace(&squat_namespace, 1)) != 0) {
 	fatal(error_message(r), EC_CONFIG);
@@ -388,8 +441,15 @@ int main(int argc, char **argv)
     case INDEXER:
 	/* -r requires at least one mailbox */
 	if (recursive_flag && optind == argc) usage(argv[0]);
-	do_indexer(argc-optind, (const char **)argv+optind);
+	expand_mboxnames(&mboxnames, argc-optind, (const char **)argv+optind);
+	syslog(LOG_NOTICE, "indexing mailboxes");
+	do_indexer(&mboxnames);
 	syslog(LOG_NOTICE, "done indexing mailboxes");
+	break;
+    case SEARCH:
+	if (recursive_flag && optind == argc) usage(argv[0]);
+	expand_mboxnames(&mboxnames, argc-optind, (const char **)argv+optind);
+	do_search(&terms, &mboxnames);
 	break;
     case START_DAEMON:
 	if (search_start_daemon(verbose))
@@ -401,6 +461,8 @@ int main(int argc, char **argv)
 	break;
     }
 
+    strarray_fini(&mboxnames);
+    strarray_fini(&terms);
     seen_done();
     mboxlist_close();
     mboxlist_done();
