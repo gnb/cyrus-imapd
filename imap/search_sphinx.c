@@ -56,6 +56,7 @@
 #include "imap_err.h"
 #include "global.h"
 #include "retry.h"
+#include "command.h"
 #include "xmalloc.h"
 #include "xstrlcpy.h"
 #include "xstrlcat.h"
