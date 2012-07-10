@@ -127,7 +127,7 @@ static int parse_cyrusid(const char *cyrusid,
     buf_reset(&buf);
     buf_appendcstr(&buf, cyrusid);
 
-    p = strrchr(buf.s, '.');
+    p = strrchr(buf_cstring(&buf), '.');
     if (!p)
 	return 0;
     *p++ = '\0';
