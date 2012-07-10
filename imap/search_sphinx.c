@@ -718,6 +718,7 @@ static int setup_sphinx_tree(void)
 	    goto out;
 	}
     }
+    r = 0;
 
 out:
     free(path);
@@ -775,8 +776,10 @@ static int setup_sphinx_config(int verbose)
 
     if (stat(sphinx_config, &sb) == 0 &&
 	S_ISREG(sb.st_mode) &&
-	sb.st_size > 0)
+	sb.st_size > 0) {
+	r = 0;
 	goto out;	/* a non-zero file already exists */
+    }
 
     if (verbose)
 	syslog(LOG_NOTICE, "Sphinx writing config file %s", sphinx_config);
