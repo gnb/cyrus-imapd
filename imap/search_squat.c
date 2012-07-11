@@ -418,11 +418,15 @@ static int end_search1(search_builder_t *bx)
     if (bb->verbose > 1)
 	syslog(LOG_NOTICE, "Squat end_search1()");
 #endif
+
+    /* check we had balanced ->begin_boolean and ->end_boolean calls */
+    if (bb->depth != 1)
+	goto out;
+
     r = add_unindexed(bb);
     if (r) goto out;
 
     /* Flatten out the final bit vector into a sequence */
-    assert(bb->depth == 1);
     for (msgno = 1 ; msgno <= bb->state->exists; msgno++) {
 	if (bv_isset(&bb->stack[0].msg_vector, msgno))
 	    bb->msgno_list[n++] = msgno;
