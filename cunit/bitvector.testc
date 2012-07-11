@@ -1,4 +1,5 @@
 #include "cunit/cunit.h"
+#include "xmalloc.h"
 #include "bitvector.h"
 
 static void test_free(void)
@@ -300,6 +301,70 @@ static void test_copy(void)
 
     bv_free(&dst);
     bv_free(&src);
+}
+
+static void test_cstring(void)
+{
+    bitvector_t bv = BV_INITIALIZER;
+    char *s;
+
+    /* test empty set */
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "[]");
+    free(s);
+
+    /* set a bit */
+    bv_set(&bv, 11);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "0008[11]");
+    free(s);
+
+    /* set another bit, not adjacent */
+    bv_set(&bv, 3);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "0808[3,11]");
+    free(s);
+
+    /* set another bit, adjacent */
+    bv_clear(&bv, 3);
+    bv_set(&bv, 10);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "000c[10-11]");
+    free(s);
+
+    /* set more bits, adjacent */
+    bv_set(&bv, 9);
+    bv_set(&bv, 12);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "001e[9-12]");
+    free(s);
+
+    /* set a bit at the start */
+    bv_clearall(&bv);
+    bv_set(&bv, 0);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "0100[0]");
+    free(s);
+
+    /* set another bit adjacent to the start */
+    bv_set(&bv, 1);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "0300[0-1]");
+    free(s);
+
+    /* set every 2nd bit */
+    bv_clearall(&bv);
+    bv_set(&bv, 1);
+    bv_set(&bv, 3);
+    bv_set(&bv, 5);
+    bv_set(&bv, 7);
+    bv_set(&bv, 9);
+    bv_set(&bv, 11);
+    s = bv_cstring(&bv);
+    CU_ASSERT_STRING_EQUAL(s, "aa0a[1,3,5,7,9,11]");
+    free(s);
+
+    bv_free(&bv);
 }
 
 /* vim: set ft=c: */

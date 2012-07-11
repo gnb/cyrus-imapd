@@ -48,6 +48,7 @@
 
 #include "xmalloc.h"
 #include "bitvector.h"
+#include "util.h"
 
 #ifndef MAX
 #define MAX(a,b)    ((a)>(b)?(a):(b))
@@ -163,6 +164,52 @@ void bv_oreq(bitvector_t *a, const bitvector_t *b)
     for (i = 0 ; i <= n ; i++)
 	a->bits[i] |= b->bits[i];
     a->length = MAX(a->length, b->length);
+}
+
+/* Returns a string which describes the state of the bitvector,
+ * useful for debugging.  Returns a new string which must be free'd
+ * by the caller */
+char *bv_cstring(const bitvector_t *bv)
+{
+    struct buf buf = BUF_INITIALIZER;
+    unsigned int i;
+    unsigned int first = ~0U;
+    unsigned int last;
+    const char *sep = "";
+
+    if (bv->length) {
+	buf_truncate(&buf, vlen(bv->length)*2);
+	bin_to_hex(bv->bits, vlen(bv->length), buf.s, 0);
+    }
+
+    buf_putc(&buf, '[');
+
+    for (i = 0 ; i < bv->length ; i++) {
+	if (bv->bits[vidx(i)] & vmask(i)) {
+	    if (first == ~0U)
+		first = i;
+	}
+	else if (first != ~0U) {
+	    last = i-1;
+	    if (first == last)
+		buf_printf(&buf, "%s%u", sep, first);
+	    else
+		buf_printf(&buf, "%s%u-%u", sep, first, last);
+	    sep = ",";
+	    first = ~0U;
+	}
+    }
+
+    if (first != ~0U) {
+	last = bv->length-1;
+	if (first == last)
+	    buf_printf(&buf, "%s%u", sep, first);
+	else
+	    buf_printf(&buf, "%s%u-%u", sep, first, last);
+    }
+
+    buf_putc(&buf, ']');
+    return buf_release(&buf);
 }
 
 void bv_free(bitvector_t *bv)
