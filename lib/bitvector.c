@@ -59,6 +59,11 @@
 #define vlen(x)		vidx((x)+7)
 #define QUANTUM		(256)
 
+void bv_init(bitvector_t *bv)
+{
+    memset(bv, 0, sizeof(*bv));
+}
+
 /* Ensure that the array contains enough memory for @len
  * bits, expanding the bitvector if necessary */
 static void bv_ensure(bitvector_t *bv, unsigned int len)
