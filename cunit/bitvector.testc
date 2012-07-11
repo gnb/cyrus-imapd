@@ -251,3 +251,55 @@ static void test_shrink_expand(void)
 
     bv_free(&bv);
 }
+
+static void test_copy(void)
+{
+    bitvector_t dst = BV_INITIALIZER;
+    bitvector_t src = BV_INITIALIZER;
+
+    /* test copying of empty sets */
+    bv_copy(&dst, &src);
+    CU_ASSERT_EQUAL(0, dst.length);
+
+    /* set up some bits */
+    bv_set(&src, 0);
+    bv_set(&src, 11);
+    bv_set(&src, 23);
+    CU_ASSERT_EQUAL(24, src.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&src, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 1));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 10));
+    CU_ASSERT_EQUAL(1, bv_isset(&src, 11));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 12));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 22));
+    CU_ASSERT_EQUAL(1, bv_isset(&src, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 24));
+
+    /* copy and check the bits are now in both */
+    bv_copy(&dst, &src);
+
+    CU_ASSERT_EQUAL(24, dst.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&dst, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&dst, 1));
+    CU_ASSERT_EQUAL(0, bv_isset(&dst, 10));
+    CU_ASSERT_EQUAL(1, bv_isset(&dst, 11));
+    CU_ASSERT_EQUAL(0, bv_isset(&dst, 12));
+    CU_ASSERT_EQUAL(0, bv_isset(&dst, 22));
+    CU_ASSERT_EQUAL(1, bv_isset(&dst, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&dst, 24));
+
+    CU_ASSERT_EQUAL(24, src.length);
+    CU_ASSERT_EQUAL(1, bv_isset(&src, 0));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 1));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 10));
+    CU_ASSERT_EQUAL(1, bv_isset(&src, 11));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 12));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 22));
+    CU_ASSERT_EQUAL(1, bv_isset(&src, 23));
+    CU_ASSERT_EQUAL(0, bv_isset(&src, 24));
+
+    bv_free(&dst);
+    bv_free(&src);
+}
+
+/* vim: set ft=c: */

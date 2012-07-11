@@ -93,6 +93,12 @@ void bv_prealloc(bitvector_t *bv, unsigned int len)
     bv_ensure(bv, len);
 }
 
+void bv_copy(bitvector_t *to, const bitvector_t *from)
+{
+    bv_setsize(to, from->length);
+    memcpy(to->bits, from->bits, vlen(from->length));
+}
+
 void bv_clearall(bitvector_t *bv)
 {
     if (bv->length)

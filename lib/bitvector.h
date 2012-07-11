@@ -61,6 +61,7 @@ struct bitvector
 extern void bv_init(bitvector_t *);
 extern void bv_setsize(bitvector_t *, unsigned int i);
 extern void bv_prealloc(bitvector_t *, unsigned int);
+extern void bv_copy(bitvector_t *to, const bitvector_t *from);
 extern void bv_clearall(bitvector_t *);
 extern void bv_setall(bitvector_t *);
 extern int bv_isset(const bitvector_t *, unsigned int);
