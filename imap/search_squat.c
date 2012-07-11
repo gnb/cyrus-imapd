@@ -95,8 +95,8 @@ static const char * const doctypes_by_part[SEARCH_NUM_PARTS] = {
     "t",
     "c",
     "b",
-    "s"
-    "h"
+    "s",
+    "h",
     "m"
 };
 
