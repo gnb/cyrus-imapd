@@ -376,14 +376,13 @@ struct sphinx_receiver
 #define MAX_UNCOMMITTED	    10
 
 static const char *describe_query(MYSQL *conn, struct buf *desc,
-				  const struct buf *query)
+				  const struct buf *query,
+				  unsigned maxlen)
 {
-#define MAX_QUERY_DESCRIPTION	128
     buf_reset(desc);
     buf_appendcstr(desc, "Sphinx query \"");
-    if (query->len > MAX_QUERY_DESCRIPTION) {
-// 	append_escaped_map(conn, desc, query->s, MAX_QUERY_DESCRIPTION);
-	buf_appendmap(desc, query->s, MAX_QUERY_DESCRIPTION);
+    if (maxlen && query->len > maxlen) {
+	buf_appendmap(desc, query->s, maxlen);
 	buf_appendcstr(desc, "...");
     }
     else {
@@ -397,14 +396,15 @@ static int doquery(sphinx_receiver_t *tr, const struct buf *query)
 {
     int r;
     struct buf desc = BUF_INITIALIZER;
+    unsigned int maxlen = tr->verbose > 2 ? /*unlimited*/0 : 128;
 
     if (tr->verbose > 1)
-	syslog(LOG_NOTICE, "%s", describe_query(tr->conn, &desc, query));
+	syslog(LOG_NOTICE, "%s", describe_query(tr->conn, &desc, query, maxlen));
 
     r = mysql_real_query(tr->conn, query->s, query->len);
     if (r) {
 	syslog(LOG_ERR, "IOERROR: %s failed: %s",
-			describe_query(tr->conn, &desc, query),
+			describe_query(tr->conn, &desc, query, maxlen),
 			mysql_error(tr->conn));
 	r = IMAP_IOERROR;
     }
