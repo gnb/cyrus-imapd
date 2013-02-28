@@ -220,6 +220,7 @@ EXPORTED int proc_foreach(procdata_t *func, void *rock)
     char *path;
     const char *p;
     pid_t pid;
+    char *end = NULL;
     int r = 0;
 
     path = proc_getpath(0);
@@ -230,7 +231,12 @@ EXPORTED int proc_foreach(procdata_t *func, void *rock)
 	while ((dirent = readdir(dirp)) != NULL) {
 	    p = dirent->d_name;
 	    if (*p == '.') continue; /* dot files */
-	    pid = strtoul(p, NULL, 10);
+	    pid = strtoul(p, &end, 10);
+	    if (pid == 0 || end == NULL || *end || end == p) {
+		syslog(LOG_ERR, "IOERROR: bogus filename \"%s/%s\" in proc_foreach",
+				p, path);
+		continue;
+	    }
 	    r = proc_foreach_helper(pid, func, rock);
 	    if (r) break;
 	}
